@@ -116,6 +116,11 @@ namespace MetricsDiscoveryInternal
         void                  SetStreamConfigId( const int32_t id );
         std::vector<uint8_t>& GetStreamBuffer();
 
+        bool     IsReadStreamFromTailEnabled();
+        uint32_t GetReadStreamTimeoutInMs();
+        void     SetReadStreamFromTail( const bool enable );
+        void     SetReadStreamTimeout( const uint32_t timeoutInMs );
+
     private:
         // Methods to read from buffer must be used in correct order
         TCompletionCode ReadGlobalSymbolsFromBuffer( uint8_t*& bufferPtr, const uint8_t* bufferBeginOffset, const uint32_t bufferSize, const uint32_t bufferVersion );
@@ -155,5 +160,8 @@ namespace MetricsDiscoveryInternal
 
         TQueryMode       m_queryModeRequested;
         const TQueryMode m_queryModeDefault;
+
+        bool     m_readFromTail;
+        uint32_t m_readTimeoutInMs;
     };
 } // namespace MetricsDiscoveryInternal

@@ -65,6 +65,8 @@ namespace MetricsDiscoveryInternal
         , m_oaBuferCount( m_isOffline ? 0xFFFFFFFF : 0 )
         , m_queryModeRequested( QUERY_MODE_NONE )
         , m_queryModeDefault( m_driverInterface.GetQueryModeOverride() )
+        , m_readFromTail( false )
+        , m_readTimeoutInMs( 0 )
     {
         const uint32_t adapterId = m_adapter.GetAdapterId();
 
@@ -2116,6 +2118,26 @@ namespace MetricsDiscoveryInternal
     std::vector<uint8_t>& CMetricsDevice::GetStreamBuffer()
     {
         return m_streamBuffer;
+    }
+
+    bool CMetricsDevice::IsReadStreamFromTailEnabled()
+    {
+        return m_readFromTail;
+    }
+
+    uint32_t CMetricsDevice::GetReadStreamTimeoutInMs()
+    {
+        return m_readTimeoutInMs;
+    }
+
+    void CMetricsDevice::SetReadStreamFromTail( const bool enable )
+    {
+        m_readFromTail = enable;
+    }
+
+    void CMetricsDevice::SetReadStreamTimeout( const uint32_t timeoutInMs )
+    {
+        m_readTimeoutInMs = timeoutInMs;
     }
 
     //////////////////////////////////////////////////////////////////////////////

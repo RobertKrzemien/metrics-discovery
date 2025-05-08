@@ -36,6 +36,13 @@ SPDX-License-Identifier: MIT
 #include <poll.h>
 #include <unistd.h> // close, write, read
 
+#include <thread>
+
+#define MD_READ_STREAM_FROM_TAIL     "MD_READ_STREAM_FROM_TAIL"
+#define MD_READ_STREAM_TIMEOUT_IN_MS "MD_READ_STREAM_TIMEOUT_IN_MS"
+#define MD_POLL_OA_PERIOD_IN_US      "MD_POLL_OA_PERIOD_IN_US"
+#define MD_OA_NOTIFY_NUM_REPORTS     "MD_OA_NOTIFY_NUM_REPORTS"
+
 using namespace MetricsDiscovery;
 
 namespace MetricsDiscoveryInternal
@@ -884,11 +891,71 @@ namespace MetricsDiscoveryInternal
         // Half-full buffer interrupt.
         if( m_perfCapabilities.IsOaNotifyNumReportsSupported )
         {
-            const uint32_t halfSizeInReports = bufferSize / 2 / oaReportSize;
+            int32_t notify = 0;
+
+            if( const char* notifyEnv = iu_dupenv_s( MD_OA_NOTIFY_NUM_REPORTS );
+                notifyEnv )
+            {
+                notify = atoi( notifyEnv );
+                free( (void*) notifyEnv );
+            }
+
+            const uint32_t halfSizeInReports = ( notify > 0 )
+                ? notify
+                : bufferSize / 2 / oaReportSize;
 
             addProperty( PRELIM_DRM_I915_PERF_PROP_OA_NOTIFY_NUM_REPORTS, halfSizeInReports );
 
             MD_LOG_A( m_adapterId, LOG_DEBUG, "Notify num reports is %u", halfSizeInReports );
+        }
+
+        if( const char* readFromTailEnv = iu_dupenv_s( MD_READ_STREAM_FROM_TAIL );
+            readFromTailEnv )
+        {
+            const int32_t readFromTail = atoi( readFromTailEnv );
+            free( (void*) readFromTailEnv );
+
+            if( readFromTail >= 0 )
+            {
+                const bool enable = readFromTail != 0;
+
+                metricsDevice.SetReadStreamFromTail( enable );
+
+                MD_LOG_A( m_adapterId, LOG_DEBUG, "Read stream from tail is %s", enable ? "enabled" : "disabled" );
+            }
+        }
+
+        if( const char* readTimeoutEnv = iu_dupenv_s( MD_READ_STREAM_TIMEOUT_IN_MS );
+            readTimeoutEnv )
+        {
+            const int32_t readTimeout = atoi( readTimeoutEnv );
+            free( (void*) readTimeoutEnv );
+
+            if( readTimeout >= 0 )
+            {
+                const uint32_t readTimoutInMs = readTimeout;
+
+                metricsDevice.SetReadStreamTimeout( readTimoutInMs );
+
+                MD_LOG_A( m_adapterId, LOG_DEBUG, "Read stream timeout is %u", readTimoutInMs );
+            }
+        }
+
+        if( const char* pollPeriodEnv = iu_dupenv_s( MD_POLL_OA_PERIOD_IN_US );
+            pollPeriodEnv )
+        {
+            const int32_t pollPeriod = atoi( pollPeriodEnv );
+            free( (void*) pollPeriodEnv );
+
+            if( pollPeriod >= 0 )
+            {
+                // Minimum allowed value is 100 microseconds
+                const uint32_t pollPeriodInUs = ( pollPeriod > 100 ? pollPeriod : 100 ) * 1000; // microseconds to nanoseconds
+
+                addProperty( DRM_I915_PERF_PROP_POLL_OA_PERIOD, pollPeriodInUs );
+
+                MD_LOG_A( m_adapterId, LOG_DEBUG, "Poll oa period is %u", pollPeriodInUs );
+            }
         }
 
         if( IsSubDeviceSupported() )
@@ -1011,6 +1078,18 @@ namespace MetricsDiscoveryInternal
 
         MD_LOG_A( m_adapterId, LOG_DEBUG, "Trying to read %u reports from i915 Perf stream, fd: %d", reportsToRead, streamId );
 
+        if( metricsDevice.IsReadStreamFromTailEnabled() )
+        {
+            // This sets HEAD to TAIL meaning OA Buffer is empty
+            lseek( streamId, 0, SEEK_END );
+
+            // Wait for at least one report in OA Buffer
+            if( const uint32_t readTimeoutInMs = metricsDevice.GetReadStreamTimeoutInMs();
+                readTimeoutInMs > 0 )
+            {
+                auto status = WaitForOaStreamReports( metricsDevice, readTimeoutInMs );
+            }
+        }
         // #Note May read 1 sample less than requested if ReportLost is returned from kernel
 
         // 1. READ DATA
@@ -1020,11 +1099,41 @@ namespace MetricsDiscoveryInternal
             readBytes = 0;
             if( errno == EAGAIN )
             {
-                MD_LOG_A( m_adapterId, LOG_DEBUG, "i915 Perf stream data not available yet" );
-                return CC_OK;
+                // Wait for at least one report in OA Buffer
+                if( const uint32_t readTimeoutInMs = metricsDevice.GetReadStreamTimeoutInMs();
+                    readTimeoutInMs > 0 )
+                {
+                    std::this_thread::sleep_for( std::chrono::microseconds( 100 ) );
+
+                    auto status = WaitForOaStreamReports( metricsDevice, readTimeoutInMs );
+
+                    perfReadBytes = read( streamId, streamBuffer.data(), perfBytesToRead );
+                    if( perfReadBytes < 0 )
+                    {
+                        readBytes = 0;
+                        if( errno == EAGAIN )
+                        {
+                            MD_LOG_A( m_adapterId, LOG_DEBUG, "i915 Perf stream data not available yet" );
+                            return CC_OK;
+                        }
+                        else
+                        {
+                            MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Reading i915 Perf stream failed, errno: %d (%s)", errno, strerror( errno ) );
+                            return CC_ERROR_GENERAL;
+                        }
+                    }
+                }
+                else
+                {
+                    MD_LOG_A( m_adapterId, LOG_DEBUG, "i915 Perf stream data not available yet" );
+                    return CC_OK;
+                }
             }
-            MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Reading i915 Perf stream failed, errno: %d (%s)", errno, strerror( errno ) );
-            return CC_ERROR_GENERAL;
+            else
+            {
+                MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Reading i915 Perf stream failed, errno: %d (%s)", errno, strerror( errno ) );
+                return CC_ERROR_GENERAL;
+            }
         }
         MD_LOG_A( m_adapterId, LOG_DEBUG, "Read %u Perf bytes (= %lu reports), perfReportSize: %lu", perfReadBytes, perfReadBytes / perfReportSize, perfReportSize );
 

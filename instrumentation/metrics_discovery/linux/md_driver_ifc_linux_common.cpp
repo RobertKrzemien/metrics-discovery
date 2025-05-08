@@ -1765,6 +1765,13 @@ namespace MetricsDiscoveryInternal
             return CC_ERROR_NOT_SUPPORTED;
         }
 
+        if( const uint32_t readTimeoutInMs = oaConcurrentGroup.GetMetricsDevice().GetReadStreamTimeoutInMs();
+            readTimeoutInMs > 0 )
+        {
+            // Not needed.
+            return CC_OK;
+        }
+
         return WaitForOaStreamReports( oaConcurrentGroup.GetMetricsDevice(), milliseconds );
     }
     //////////////////////////////////////////////////////////////////////////////
