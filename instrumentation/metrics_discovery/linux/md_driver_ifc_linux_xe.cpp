@@ -14,6 +14,8 @@ SPDX-License-Identifier: MIT
 #include "md_driver_ifc_linux_xe.h"
 #include "md_adapter.h"
 #include "md_metrics_device.h"
+#include "md_oa_concurrent_group.h"
+#include "md_metric_set.h"
 #include "md_utils.h"
 
 #include <cmath>
@@ -93,15 +95,7 @@ namespace MetricsDiscoveryInternal
     //////////////////////////////////////////////////////////////////////////////
     CDriverInterfaceLinuxXe::~CDriverInterfaceLinuxXe()
     {
-        MD_LOG_ENTER_A( m_adapterId );
-
-        for( int32_t oaConfigId : m_AddedOaConfigs )
-        {
-            RemoveOaConfig( oaConfigId );
-        }
-        m_AddedOaConfigs.clear();
-
-        MD_LOG_EXIT_A( m_adapterId );
+        RemoveAllAddedOaConfigs();
     }
 
     //////////////////////////////////////////////////////////////////////////////
@@ -541,24 +535,24 @@ namespace MetricsDiscoveryInternal
     //     point.
     //
     // Input:
-    //     CMetricsDevice&           metricsDevice       - metrics device
-    //     uint32_t                  oaMetricSetId       - oa configuration ID (previously added)
-    //     uint32_t                  oaReportType        - oa report type
-    //     uint32_t                  oaReportSize        - oa report size
-    //     uint32_t                  timerPeriodExponent - timer period exponent
-    //     uint32_t                  bufferSize          - oa buffer size
-    //     const GTDI_OA_BUFFER_TYPE oaBufferType        - oa buffer type
+    //     COAConcurrentGroup& oaConcurrentGroup   - oa concurrent group
+    //     const uint32_t      oaMetricSetId       - oa configuration ID (previously added)
+    //     const uint32_t      timerPeriodExponent - timer period exponent
+    //     uint32_t            bufferSize          - oa buffer size
     //
     // Output:
-    //     TCompletionCode                               - *CC_OK* means success
+    //     TCompletionCode                         - *CC_OK* means success
     //
     //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxXe::OpenOaStream( CMetricsDevice& metricsDevice, uint32_t oaMetricSetId, uint32_t oaReportType, uint32_t oaReportSize, uint32_t timerPeriodExponent, uint32_t bufferSize, const GTDI_OA_BUFFER_TYPE oaBufferType )
+    TCompletionCode CDriverInterfaceLinuxXe::OpenOaStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t oaMetricSetId, const uint32_t timerPeriodExponent, uint32_t bufferSize )
     {
         TCompletionCode ret                    = CC_ERROR_GENERAL;
         int32_t         oaEventFd              = -1;
         uint32_t        requiredEngineInstance = -1;
+        uint32_t        oaReportType           = GetOaReportType( oaConcurrentGroup.GetIoMetricSet()->GetReportType() );
+        const auto      oaBufferType           = oaConcurrentGroup.GetOaBufferType();
         const bool      isOamRequested         = IsOamRequested( oaReportType, oaBufferType );
+        auto&           metricsDevice          = oaConcurrentGroup.GetMetricsDevice();
         const uint32_t  subDeviceIndex         = metricsDevice.GetSubDeviceIndex();
         auto            subDevices             = metricsDevice.GetAdapter().GetSubDevices();
         auto            engine                 = TEngineParamsLatest{};
@@ -566,11 +560,6 @@ namespace MetricsDiscoveryInternal
         uint32_t        currentIndex           = 0;
 
         drm_xe_ext_set_property properties[DRM_XE_OA_PROPERTY_WAIT_NUM_REPORTS - DRM_XE_OA_EXTENSION_SET_PROPERTY] = {};
-
-        auto isValidValue = []( uint32_t value )
-        {
-            return value != static_cast<uint32_t>( -1 );
-        };
 
         auto addProperty = [&]( const uint64_t key, const uint64_t value )
         {
@@ -588,6 +577,11 @@ namespace MetricsDiscoveryInternal
             ++currentIndex;
         };
 
+        if( oaReportType == static_cast<uint32_t>( -1 ) )
+        {
+            return CC_ERROR_NOT_SUPPORTED;
+        }
+
         if( isOamRequested )
         {
             if( m_xeObservationCapabilities.IsOamSagSupported && oaBufferType == GTDI_OA_BUFFER_TYPE_OAM_SAG )
@@ -597,24 +591,15 @@ namespace MetricsDiscoveryInternal
             else
             {
                 const uint32_t oamBufferSlice = static_cast<uint32_t>( oaBufferType ) - GTDI_OA_BUFFER_TYPE_OAM_SLICE_0;
-                if( !isValidValue( oamBufferSlice ) )
+                if( oamBufferSlice == static_cast<uint32_t>( -1 ) )
                 {
                     MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Incorrect oa buffer type for OAM. oaBufferType: %d, oamBufferSlice: %d", static_cast<uint32_t>( oaBufferType ), oamBufferSlice );
                     return CC_ERROR_INVALID_PARAMETER;
                 }
 
                 uint32_t baseEngineInstance = 0;
-                for( uint32_t i = 0; i < subDeviceIndex; ++i )
-                {
-                    const uint32_t videoEnhanceEngineCount = subDevices.GetClassInstancesCount( i, DRM_XE_ENGINE_CLASS_VIDEO_ENHANCE );
-
-                    ret = isValidValue( videoEnhanceEngineCount )
-                        ? CC_ERROR_GENERAL
-                        : CC_OK;
-                    MD_CHECK_CC_RET_A( m_adapterId, ret );
-
-                    baseEngineInstance += videoEnhanceEngineCount;
-                }
+                ret                         = GetOamBaseEngineInstance( subDevices, subDeviceIndex, DRM_XE_ENGINE_CLASS_VIDEO_ENHANCE, baseEngineInstance );
+                MD_CHECK_CC_RET_A( m_adapterId, ret );
 
                 requiredEngineInstance = baseEngineInstance + oamBufferSlice;
             }
@@ -653,7 +638,7 @@ namespace MetricsDiscoveryInternal
         // Half-full buffer interrupt.
         if( m_xeObservationCapabilities.IsOaNotifyNumReportsSupported )
         {
-            const uint32_t halfSizeInReports = bufferSize / 2 / oaReportSize;
+            const uint32_t halfSizeInReports = ( ( bufferSize / 2 ) / oaConcurrentGroup.GetIoMetricSet()->GetParams()->RawReportSize );
 
             addProperty( DRM_XE_OA_PROPERTY_WAIT_NUM_REPORTS, halfSizeInReports );
 
@@ -685,7 +670,7 @@ namespace MetricsDiscoveryInternal
             }
         }
 
-        metricsDevice.SetStreamId( oaEventFd );
+        oaConcurrentGroup.SetStreamId( oaEventFd );
 
         MD_LOG_A( m_adapterId, LOG_DEBUG, "XE OA stream opened successfully, fd: %d", oaEventFd );
         return CC_OK;
@@ -705,21 +690,21 @@ namespace MetricsDiscoveryInternal
     //     exception flags are set.
     //
     // Input:
-    //     CMetricsDevice&                  metricsDevice - metrics device
-    //     uint32_t                         reportSize    - size of a single OA report
-    //     uint32_t                         reportsToRead - number of reports to read
-    //     char*                            reportData    - (OUT) buffer for reports
-    //     uint32_t&                        readBytes     - (OUT) number of bytes read and copied to the output buffer
-    //     GTDIReadCounterStreamExceptions& exceptions    - (OUT) exception flags reported by XE OA
+    //     COAConcurrentGroup&              oaConcurrentGroup - oa concurrent group
+    //     const uint32_t                   reportSize        - size of a single OA report
+    //     const uint32_t                   reportsToRead     - number of reports to read
+    //     char*                            reportData        - (OUT) buffer for reports
+    //     uint32_t&                        readBytes         - (OUT) number of bytes read and copied to the output buffer
+    //     GTDIReadCounterStreamExceptions& exceptions        - (OUT) exception flags reported by XE OA
     //
     // Output:
     //     TCompletionCode                   - *CC_OK* means success, BUT IT DOESN'T MEAN ALL REQUESTED DATA WAS READ !!
     //                                         (check readBytes for that).
     //
     //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxXe::ReadOaStream( CMetricsDevice& metricsDevice, uint32_t reportSize, uint32_t reportsToRead, char* reportData, uint32_t& readBytes, GTDIReadCounterStreamExceptions& exceptions )
+    TCompletionCode CDriverInterfaceLinuxXe::ReadOaStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t reportSize, const uint32_t reportsToRead, char* reportData, uint32_t& readBytes, GTDIReadCounterStreamExceptions& exceptions )
     {
-        const int32_t streamId = metricsDevice.GetStreamId();
+        const int32_t streamId = oaConcurrentGroup.GetStreamId();
 
         if( streamId < 0 )
         {
@@ -827,36 +812,24 @@ namespace MetricsDiscoveryInternal
     //     send for the second time).
     //
     // Input:
-    //     TRegister**    regVector      - array of pointers to registers to send (add)
-    //     const uint32_t regCount       - register count
-    //     const uint32_t subDeviceIndex - sub device index
-    //     const char*    requestedGuid  - [optional] GUID under which configuration will be added, if nullptr GUID will be generated
-    //     const bool     isOaMert       - true if OA MERT configuration
-    //     int32_t&       addedConfigId  - (OUT) added oa configuration ID, -1 if error
+    //     TRegister**              regVector      - array of pointers to registers to send (add)
+    //     const uint32_t           regCount       - register count
+    //     const uint32_t           subDeviceIndex - sub device index
+    //     const TReportType        reportType     - report type
+    //     const TConfigurationType configType     - configuration type (stream, OA, MERT)
+    //     int32_t&                 addedConfigId  - (OUT) added oa configuration ID, -1 if error
     //
     // Output:
     //     TCompletionCode               - *CC_OK* means success
     //
     //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxXe::AddOaConfig( TRegister** regVector, const uint32_t regCount, const uint32_t subDeviceIndex, const char* requestedGuid, const bool isOaMert, int32_t& addedConfigId )
+    TCompletionCode CDriverInterfaceLinuxXe::AddOaConfig( TRegister** regVector, const uint32_t regCount, const uint32_t subDeviceIndex, const TReportType reportType, const TConfigurationType configType, int32_t& addedConfigId )
     {
         MD_LOG_ENTER_A( m_adapterId );
-        MD_CHECK_PTR_RET_A( m_adapterId, regVector, CC_ERROR_INVALID_PARAMETER );
-        if( isOaMert && !m_xeObservationCapabilities.IsOaMertSupported )
-        {
-            addedConfigId = -1;
-            MD_LOG_A( m_adapterId, LOG_WARNING, "OA MERT configuration is not supported" );
-            return CC_ERROR_NOT_SUPPORTED;
-        }
-        if( !regCount )
-        {
-            addedConfigId = -1;
-            MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Empty configuration" );
-            return CC_ERROR_GENERAL;
-        }
 
-        TCompletionCode                       ret  = CC_OK;
-        const char*                           guid = requestedGuid;
+        TCompletionCode ret = ValidateAddOaConfigParams( regVector, regCount, configType, addedConfigId );
+        MD_CHECK_CC_RET_A( m_adapterId, ret );
+
         std::vector<iu_xe_oa_config_register> registers;
         std::string                           regsString; // For hash (guid)
 
@@ -864,14 +837,16 @@ namespace MetricsDiscoveryInternal
         MD_LOG_A( m_adapterId, LOG_DEBUG, "AddOaConfig regCount: %u", regCount );
         for( uint32_t i = 0; i < regCount; i++ )
         {
-            if( regVector[i] && ( ( regVector[i]->type != REGISTER_TYPE_MERT && !isOaMert ) || ( regVector[i]->type == REGISTER_TYPE_MERT && isOaMert ) ) )
+            const bool isMertConfig   = ( configType == CONFIGURATION_TYPE_EVENT_OA_MERT || configType == CONFIGURATION_TYPE_STREAM_OA_MERT );
+            const bool isMertRegister = regVector[i] && ( regVector[i]->type == REGISTER_TYPE_MERT );
+
+            if( regVector[i] && ( isMertRegister == isMertConfig ) )
             {
                 registers.push_back( { regVector[i]->offset, regVector[i]->value } );
-                if( !guid )
-                {
-                    regsString += std::to_string( regVector[i]->offset ) + '.';
-                    regsString += std::to_string( regVector[i]->value ) + ';';
-                }
+
+                regsString += std::to_string( regVector[i]->offset ) + '.';
+                regsString += std::to_string( regVector[i]->value ) + ';';
+
                 MD_LOG_A( m_adapterId, LOG_DEBUG, "regOffset: %#x, regValue: %#x", regVector[i]->offset, regVector[i]->value );
             }
         }
@@ -883,24 +858,16 @@ namespace MetricsDiscoveryInternal
             return CC_ERROR_GENERAL;
         }
 
-        // 2. GENERATE CONFIG GUID (if needed) - string formatted like "%08x-%04x-%04x-%04x-%012x"
-        char generatedGuid[MD_PERF_GUID_LENGTH];
-        if( !guid )
-        {
-            std::hash<std::string> stringHash;
+        // 2. GENERATE CONFIG GUID
+        const std::string guid = GenerateConfigGuid( subDeviceIndex, reportType, std::hash<std::string>{}( regsString ), configType );
 
-            // Use std::hash for GUID generation
-            snprintf( generatedGuid, sizeof( generatedGuid ), "%08x-%04x-%04x-%04x-%012x", 0, 0, subDeviceIndex, 0, static_cast<uint32_t>( stringHash( regsString ) ) );
-            guid = generatedGuid;
-        }
-
-        MD_LOG_A( m_adapterId, LOG_DEBUG, "Adding configuration under guid: %s", guid );
+        MD_LOG_A( m_adapterId, LOG_DEBUG, "Adding configuration under guid: %s", guid.c_str() );
 
         // 3. SET PARAMS
         drm_xe_oa_config configParam = {};
 
         static_assert( sizeof( configParam.uuid ) == ( MD_PERF_GUID_LENGTH - 1 ), "GUID length mismatch with XE OA API" );
-        iu_memcpy_s( configParam.uuid, sizeof( configParam.uuid ), guid, MD_PERF_GUID_LENGTH - 1 ); // Copy without ending '\0' (size 36)
+        iu_memcpy_s( configParam.uuid, sizeof( configParam.uuid ), guid.c_str(), MD_PERF_GUID_LENGTH - 1 ); // Copy without ending '\0' (size 36)
 
         configParam.regs_ptr = reinterpret_cast<uint64_t>( registers.data() );
         configParam.n_regs   = static_cast<uint32_t>( registers.size() );
@@ -913,23 +880,21 @@ namespace MetricsDiscoveryInternal
 
         // 4. ADD CONFIG TO XE OA
         addedConfigId = SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_XE_OBSERVATION, &param );
-        if( addedConfigId == -1 )
-        {
-            if( errno != EADDRINUSE ) // errno == 98 (EADDRINUSE) means set with the given GUID is already added
-            {
-                MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Adding XE OA configuration failed, errno: %d (%s)", errno, strerror( errno ) );
-                ret = CC_ERROR_GENERAL;
-            }
-            else
-            {
-                MD_LOG_A( m_adapterId, LOG_DEBUG, "Configuration with the given GUID already added, reusing" );
-                ret = GetOaMetricSetId( guid, addedConfigId );
-            }
-        }
 
-        if( ret == CC_OK )
+        ret = GetAddedOaConfigId( guid, addedConfigId );
+
+        // 5. IF CONFIG IS ALREADY ADDED, REMOVE IT AND ADD AGAIN TO UPDATE INDEX NODE FOR QUERY
+        if( ret == CC_ALREADY_INITIALIZED && ( configType == CONFIGURATION_TYPE_EVENT_OA || configType == CONFIGURATION_TYPE_EVENT_OA_MERT ) )
         {
-            MD_LOG_A( m_adapterId, LOG_DEBUG, "XE OA configuration added/reused, id: %d", addedConfigId );
+            if( RemoveOaConfig( addedConfigId ) == CC_OK )
+            {
+                std::unique_lock<std::shared_mutex> lock( m_Mutex );
+                m_AddedOaConfigs.erase( addedConfigId );
+            }
+
+            addedConfigId = SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_XE_OBSERVATION, &param );
+
+            ret = GetAddedOaConfigId( guid, addedConfigId );
         }
 
         MD_LOG_EXIT_A( m_adapterId );
@@ -942,59 +907,46 @@ namespace MetricsDiscoveryInternal
     //     CDriverInterfaceLinuxXe
     //
     // Method:
+    //     IsOaMertConfigSupported
+    //
+    // Description:
+    //     Returns information if OA MERT configuration is supported on current kernel.
+    //
+    // Output:
+    //     bool - *true* if supported
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    bool CDriverInterfaceLinuxXe::IsOaMertConfigSupported()
+    {
+        return m_xeObservationCapabilities.IsOaMertSupported;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxXe
+    //
+    // Method:
     //     RemoveOaConfig
     //
     // Description:
-    //     Removes from XE OA previously added OA config based on its ID.
-    //
-    //     Note from XE: "Configs can be removed while being used, they will stop appearing in SysFs
-    //                    and their content will be freed when the stream using the config is closed."
+    //     Sends the remove-config ioctl request to XE OA for the given config id.
     //
     // Input:
-    //     int32_t oaConfigId - valid oa configuration ID (previously added)
+    //     const uint64_t oaConfigId - valid oa configuration ID (previously added)
     //
     // Output:
-    //     TCompletionCode    - *CC_OK* means success
+    //     int32_t                   - ioctl result, 0 on success
     //
     //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxXe::RemoveOaConfig( int32_t oaConfigId )
+    int32_t CDriverInterfaceLinuxXe::RemoveOaConfig( const uint64_t oaConfigId )
     {
-        TCompletionCode ret = CC_OK;
+        auto param             = drm_xe_observation_param{};
+        param.observation_type = DRM_XE_OBSERVATION_TYPE_OA;
+        param.observation_op   = DRM_XE_OBSERVATION_OP_REMOVE_CONFIG;
+        param.param            = reinterpret_cast<uint64_t>( &oaConfigId );
 
-        // Note from XE: "Configs can be removed while being used, they will stop appearing in SysFs
-        //                and their content will be freed when the stream using the config is closed."
-
-        if( oaConfigId != -1 )
-        {
-            MD_LOG_A( m_adapterId, LOG_DEBUG, "Removing XE OA configuration with id: %d", oaConfigId );
-
-            uint64_t oaConfigId64 = static_cast<uint64_t>( oaConfigId );
-
-            auto param             = drm_xe_observation_param{};
-            param.observation_type = DRM_XE_OBSERVATION_TYPE_OA;
-            param.observation_op   = DRM_XE_OBSERVATION_OP_REMOVE_CONFIG;
-            param.param            = reinterpret_cast<uint64_t>( &oaConfigId64 );
-
-            const int32_t ioctlResult = SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_XE_OBSERVATION, &param );
-            if( ioctlResult )
-            {
-                if( errno != ENOENT ) // errno == 2 (ENOENT) means set with the given ID doesn't exist
-                {
-                    MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Removing XE OA configuration with id %d failed, config not found", oaConfigId );
-                }
-                else
-                {
-                    MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Removing XE OA configuration with id %d failed, errno: %d (%s)", oaConfigId, errno, strerror( errno ) );
-                }
-                ret = CC_ERROR_GENERAL;
-            }
-            else
-            {
-                MD_LOG_A( m_adapterId, LOG_DEBUG, "XE OA configuration with id %d removed", oaConfigId );
-            }
-        }
-
-        return ret;
+        return SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_XE_OBSERVATION, &param );
     }
 
     //////////////////////////////////////////////////////////////////////////////
@@ -1270,49 +1222,6 @@ namespace MetricsDiscoveryInternal
 
         MD_CHECK_CC_RET_A( m_adapterId, ret );
         MD_CHECK_CC_RET_A( m_adapterId, buffer.size() ? CC_OK : CC_ERROR_GENERAL );
-
-        return CC_OK;
-    }
-
-    //////////////////////////////////////////////////////////////////////////////
-    //
-    // Class:
-    //     CDriverInterfaceLinuxXe
-    //
-    // Method:
-    //     GetSliceMask
-    //
-    // Description:
-    //     Allows to obtain slice mask value.
-    //     Works only on Xe+ platforms.
-    //
-    // Input:
-    //     int32_t&        sliceMask        - (OUT) data
-    //     CMetricsDevice& metricsDevice    - a reference to device
-    //
-    // Output:
-    //     TCompletionCode                  - *CC_OK* means success
-    //
-    //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxXe::GetSliceMask( int32_t& sliceMask, CMetricsDevice& metricsDevice )
-    {
-        TCompletionCode ret = CC_OK;
-
-        sliceMask = 0;
-
-        // Return value is a mask of enabled subslices or dual-subslices
-        uint32_t subslicePerSlice = GetGtMaxSubslicePerSlice();
-        int64_t  subsliceMask     = 0;
-        ret                       = GetSubsliceMask( subsliceMask, metricsDevice );
-        MD_CHECK_CC_RET_A( m_adapterId, ret );
-
-        for( uint32_t i = 0; i < MD_MAX_SLICE; ++i )
-        {
-            if( ( subsliceMask >> ( subslicePerSlice * i ) ) & MD_BITMASK( subslicePerSlice ) )
-            {
-                sliceMask |= MD_BIT( i );
-            }
-        }
 
         return CC_OK;
     }

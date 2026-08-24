@@ -195,7 +195,7 @@ namespace MetricsDiscoveryInternal
                 }
             }
 
-            m_multipleSymbols = m_symbolMap.size() != 0;
+            m_multipleSymbols = !m_symbolMap.empty();
 
             TTypedValue_1_0* euCoresTotalCount = GetGlobalSymbolValue( "VectorEngineTotalCount" );
             // Get old global symbol if new one is not available

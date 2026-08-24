@@ -90,7 +90,6 @@ namespace MetricsDiscoveryInternal
         // Read global symbols per tile.
         virtual TCompletionCode GetEuCoresTotalCount( GTDIDeviceInfoParamExtOut& out, CMetricsDevice& metricsDevice ) final;
         virtual TCompletionCode GetEuCoresPerSubsliceCount( GTDIDeviceInfoParamExtOut& out, CMetricsDevice& metricsDevice ) final;
-        virtual TCompletionCode GetSliceMask( int32_t& sliceMask, CMetricsDevice& metricsDevice ) final;
         virtual TCompletionCode GetSubsliceMask( int64_t& subsliceMask, CMetricsDevice& metricsDevice ) final;
 
         // General
@@ -118,11 +117,12 @@ namespace MetricsDiscoveryInternal
         void PrintPerfCapabilities();
 
         // OA Stream
-        virtual TCompletionCode OpenOaStream( CMetricsDevice& metricsDevice, uint32_t oaMetricSetId, uint32_t oaReportType, uint32_t oaReportSize, uint32_t timerPeriodExponent, uint32_t bufferSize, const GTDI_OA_BUFFER_TYPE oaBufferType ) final;
-        virtual TCompletionCode ReadOaStream( CMetricsDevice& metricsDevice, uint32_t reportSize, uint32_t reportsToRead, char* reportData, uint32_t& readBytes, GTDIReadCounterStreamExceptions& exceptions ) final;
+        virtual TCompletionCode OpenOaStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t oaMetricSetId, const uint32_t timerPeriodExponent, uint32_t bufferSize ) final;
+        virtual TCompletionCode ReadOaStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t reportSize, const uint32_t reportsToRead, char* reportData, uint32_t& readBytes, GTDIReadCounterStreamExceptions& exceptions ) final;
         virtual TCompletionCode ChangeIoStreamState( const int32_t streamId, const TIoStreamState state ) final;
-        virtual TCompletionCode AddOaConfig( TRegister** regVector, const uint32_t regCount, const uint32_t subDeviceIndex, const char* requestedGuid, const bool isOaMert, int32_t& addedConfigId ) final;
-        virtual TCompletionCode RemoveOaConfig( int32_t oaConfigId ) final;
+        virtual TCompletionCode AddOaConfig( TRegister** regVector, const uint32_t regCount, const uint32_t subDeviceIndex, const TReportType reportType, const TConfigurationType configType, int32_t& addedConfigId ) final;
+        virtual bool            IsOaMertConfigSupported() final;
+        virtual int32_t         RemoveOaConfig( const uint64_t oaConfigId ) final;
         virtual uint32_t        GetOaReportType( const TReportType reportType ) final;
         virtual TCompletionCode GetOaTimestampFrequency( uint64_t& frequency ) final;
         virtual TCompletionCode GetCsTimestampFrequency( uint64_t& frequency ) final;

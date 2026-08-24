@@ -217,7 +217,7 @@ namespace MetricsDiscoveryInternal
 
         MD_SAFE_DELETE_ARRAY( workarounds );
 #endif
-        if( m_metricPrototypes.size() == 0 )
+        if( m_metricPrototypes.empty() )
         {
             MD_LOG_A( adapterId, LOG_DEBUG, "Cannot find any supported prototypes" );
             return CC_ERROR_NOT_SUPPORTED;
@@ -599,7 +599,7 @@ namespace MetricsDiscoveryInternal
             }
 
             // The first column must be architectural event name!
-            if( hwEventsHeader.size() > 0 &&
+            if( !hwEventsHeader.empty() &&
                 hwEventsHeader[0].m_type == TValueType::VALUE_TYPE_CSTRING &&
                 hwEventsHeader[0].m_name == "Architectural Event Name" )
             {

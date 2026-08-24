@@ -543,6 +543,7 @@ if (${PLATFORM} STREQUAL linux)
     target_link_libraries (
         ${PROJECT_NAME}
         drm
+        pthread
     )
 endif ()
 

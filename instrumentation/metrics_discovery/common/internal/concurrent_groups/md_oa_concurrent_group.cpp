@@ -1071,6 +1071,106 @@ namespace MetricsDiscoveryInternal
     //     COAConcurrentGroup
     //
     // Method:
+    //     GetStreamConfigId
+    //
+    // Description:
+    //     Returns stream configuration id.
+    //
+    // Output:
+    //     int32_t - configuration id.
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    int32_t COAConcurrentGroup::GetStreamConfigId() const
+    {
+        return m_streamConfigId;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     COAConcurrentGroup
+    //
+    // Method:
+    //     GetStreamId
+    //
+    // Description:
+    //     Returns stream id.
+    //
+    // Output:
+    //     int32_t - stream id.
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    int32_t COAConcurrentGroup::GetStreamId() const
+    {
+        return m_streamId;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     COAConcurrentGroup
+    //
+    // Method:
+    //     SetStreamId
+    //
+    // Description:
+    //     Sets stream id.
+    //
+    // Input:
+    //     const int32_t id - stream id.
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    void COAConcurrentGroup::SetStreamId( const int32_t id )
+    {
+        m_streamId = id;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     COAConcurrentGroup
+    //
+    // Method:
+    //     SetStreamConfigId
+    //
+    // Description:
+    //     Sets stream configuration id.
+    //
+    // Input:
+    //     const int32_t id - configuration id.
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    void COAConcurrentGroup::SetStreamConfigId( const int32_t id )
+    {
+        m_streamConfigId = id;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     COAConcurrentGroup
+    //
+    // Method:
+    //     GetStreamBuffer
+    //
+    // Description:
+    //     Returns preallocated buffer for reading data from tbs stream to avoid new allocations on every read.
+    //
+    // Output:
+    //     std::vector<uint8_t> - tbs stream buffer.
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    std::vector<uint8_t>& COAConcurrentGroup::GetStreamBuffer()
+    {
+        return m_streamBuffer;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     COAConcurrentGroup
+    //
+    // Method:
     //     GetStreamEventHandle
     //
     // Description:
@@ -1154,6 +1254,9 @@ namespace MetricsDiscoveryInternal
         , m_ioGpuContextInfoVector()
         , m_metricEnumeratorVector{ new( std::nothrow ) CMetricEnumerator( *this ) }
         , m_archEventVector()
+        , m_streamId( -1 )
+        , m_streamConfigId( -1 )
+        , m_streamBuffer()
     {
         AddIoMeasurementInfoPredefined();
         m_params.IoMeasurementInformationCount = static_cast<uint32_t>( m_ioMeasurementInfoVector.size() );
@@ -1349,7 +1452,7 @@ namespace MetricsDiscoveryInternal
     //////////////////////////////////////////////////////////////////////////////
     CMetricEnumerator* COAConcurrentGroup::GetMetricEnumerator( const uint32_t oaReportingTypeMask )
     {
-        auto metricEnumerator = m_metricEnumeratorVector.size() != 0
+        auto metricEnumerator = !m_metricEnumeratorVector.empty()
             ? m_metricEnumeratorVector.front()
             : nullptr;
 

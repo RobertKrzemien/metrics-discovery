@@ -14,6 +14,8 @@ SPDX-License-Identifier: MIT
 #include "md_driver_ifc_linux_perf.h"
 #include "md_adapter.h"
 #include "md_metrics_device.h"
+#include "md_oa_concurrent_group.h"
+#include "md_metric_set.h"
 #include "md_utils.h"
 
 #include <cmath>
@@ -107,17 +109,7 @@ namespace MetricsDiscoveryInternal
     //////////////////////////////////////////////////////////////////////////////
     CDriverInterfaceLinuxPerf::~CDriverInterfaceLinuxPerf()
     {
-        MD_LOG_ENTER_A( m_adapterId );
-
-        for( int32_t oaConfigId : m_AddedOaConfigs )
-        {
-            RemoveOaConfig( oaConfigId );
-        }
-        m_AddedOaConfigs.clear();
-
-        ResetPerfCapabilities();
-
-        MD_LOG_EXIT_A( m_adapterId );
+        RemoveAllAddedOaConfigs();
     }
 
     //////////////////////////////////////////////////////////////////////////////
@@ -808,39 +800,39 @@ namespace MetricsDiscoveryInternal
     //     point.
     //
     // Input:
-    //     CMetricsDevice&           metricsDevice       - metrics device
-    //     uint32_t                  oaMetricSetId       - oa configuration ID (previously added)
-    //     uint32_t                  oaReportType        - oa report type
-    //     uint32_t                  oaReportSize        - oa report size
-    //     uint32_t                  timerPeriodExponent - timer period exponent
-    //     uint32_t                  bufferSize          - oa buffer size
-    //     const GTDI_OA_BUFFER_TYPE oaBufferType        - oa buffer type
+    //     COAConcurrentGroup& oaConcurrentGroup   - oa concurrent group
+    //     const uint32_t      oaMetricSetId       - oa configuration ID (previously added)
+    //     const uint32_t      timerPeriodExponent - timer period exponent
+    //     uint32_t            bufferSize          - oa buffer size
     //
     // Output:
-    //     TCompletionCode                               - *CC_OK* means success
+    //     TCompletionCode                         - *CC_OK* means success
     //
     //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxPerf::OpenOaStream( CMetricsDevice& metricsDevice, uint32_t oaMetricSetId, uint32_t oaReportType, uint32_t oaReportSize, uint32_t timerPeriodExponent, uint32_t bufferSize, const GTDI_OA_BUFFER_TYPE oaBufferType )
+    TCompletionCode CDriverInterfaceLinuxPerf::OpenOaStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t oaMetricSetId, const uint32_t timerPeriodExponent, uint32_t bufferSize )
     {
         TCompletionCode       ret                    = CC_ERROR_GENERAL;
         int32_t               oaEventFd              = -1;
         uint32_t              requiredEngineInstance = -1;
+        const uint32_t        oaReportType           = GetOaReportType( oaConcurrentGroup.GetIoMetricSet()->GetReportType() );
         const bool            isOamRequested         = IsOamRequested( oaReportType );
+        auto&                 metricsDevice          = oaConcurrentGroup.GetMetricsDevice();
         const uint32_t        subDeviceIndex         = metricsDevice.GetSubDeviceIndex();
         auto                  subDevices             = metricsDevice.GetAdapter().GetSubDevices();
         auto                  engine                 = TEngineParamsLatest{};
         auto                  param                  = drm_i915_perf_open_param{};
         std::vector<uint64_t> properties             = {};
 
-        auto isValidValue = []( uint32_t value )
-        {
-            return value != static_cast<uint32_t>( -1 );
-        };
         auto addProperty = [&]( const uint64_t key, const uint64_t value )
         {
             properties.push_back( key );
             properties.push_back( value );
         };
+
+        if( oaReportType == static_cast<uint32_t>( -1 ) )
+        {
+            return CC_ERROR_NOT_SUPPORTED;
+        }
 
         if( isOamRequested && !IsOamSupported() )
         {
@@ -873,7 +865,7 @@ namespace MetricsDiscoveryInternal
         // Half-full buffer interrupt.
         if( m_perfCapabilities.IsOaNotifyNumReportsSupported )
         {
-            const uint32_t halfSizeInReports = bufferSize / 2 / oaReportSize;
+            const uint32_t halfSizeInReports = ( ( bufferSize / 2 ) / oaConcurrentGroup.GetIoMetricSet()->GetParams()->RawReportSize );
 
             addProperty( PRELIM_DRM_I915_PERF_PROP_OA_NOTIFY_NUM_REPORTS, halfSizeInReports );
 
@@ -884,25 +876,17 @@ namespace MetricsDiscoveryInternal
         {
             if( isOamRequested )
             {
+                const auto     oaBufferType   = oaConcurrentGroup.GetOaBufferType();
                 const uint32_t oamBufferSlice = static_cast<uint32_t>( oaBufferType ) - GTDI_OA_BUFFER_TYPE_OAM_SLICE_0;
-                if( !isValidValue( oamBufferSlice ) )
+                if( oamBufferSlice == static_cast<uint32_t>( -1 ) )
                 {
                     MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Incorrect oa buffer type for OAM. oaBufferType: %d, oamBufferSlice: %d", static_cast<uint32_t>( oaBufferType ), oamBufferSlice );
                     return CC_ERROR_INVALID_PARAMETER;
                 }
 
                 uint32_t baseEngineInstance = 0;
-                for( uint32_t i = 0; i < subDeviceIndex; ++i )
-                {
-                    const uint32_t videoEnhanceEngineCount = subDevices.GetClassInstancesCount( i, I915_ENGINE_CLASS_VIDEO_ENHANCE );
-
-                    ret = isValidValue( videoEnhanceEngineCount )
-                        ? CC_ERROR_GENERAL
-                        : CC_OK;
-                    MD_CHECK_CC_RET_A( m_adapterId, ret );
-
-                    baseEngineInstance += videoEnhanceEngineCount;
-                }
+                ret                         = GetOamBaseEngineInstance( subDevices, subDeviceIndex, I915_ENGINE_CLASS_VIDEO_ENHANCE, baseEngineInstance );
+                MD_CHECK_CC_RET_A( m_adapterId, ret );
 
                 requiredEngineInstance = baseEngineInstance + oamBufferSlice;
             }
@@ -941,7 +925,7 @@ namespace MetricsDiscoveryInternal
             return CC_ERROR_GENERAL;
         }
 
-        metricsDevice.SetStreamId( oaEventFd );
+        oaConcurrentGroup.SetStreamId( oaEventFd );
 
         MD_LOG_A( m_adapterId, LOG_DEBUG, "i915 Perf stream opened successfully, fd: %d", oaEventFd );
         return CC_OK;
@@ -961,21 +945,21 @@ namespace MetricsDiscoveryInternal
     //     exception flags are set.
     //
     // Input:
-    //     CMetricsDevice&                  metricsDevice - metrics device
-    //     uint32_t                         reportSize    - size of a single OA report, currently always 256 bytes
-    //     uint32_t                         reportsToRead - number of reports to read
-    //     char*                            reportData    - (OUT) buffer for reports
-    //     uint32_t&                        readBytes     - (OUT) number of bytes read and copied to the output buffer
-    //     GTDIReadCounterStreamExceptions& exceptions    - (OUT) exception flags reported by i915 Perf
+    //     COAConcurrentGroup&              oaConcurrentGroup - oa concurrent group
+    //     const uint32_t                   reportSize        - size of a single OA report, currently always 256 bytes
+    //     const uint32_t                   reportsToRead     - number of reports to read
+    //     char*                            reportData        - (OUT) buffer for reports
+    //     uint32_t&                        readBytes         - (OUT) number of bytes read and copied to the output buffer
+    //     GTDIReadCounterStreamExceptions& exceptions        - (OUT) exception flags reported by i915 Perf
     //
     // Output:
     //     TCompletionCode                   - *CC_OK* means success, BUT IT DOESN'T MEAN ALL REQUESTED DATA WAS READ !!
     //                                         (check readBytes for that).
     //
     //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxPerf::ReadOaStream( CMetricsDevice& metricsDevice, uint32_t reportSize, uint32_t reportsToRead, char* reportData, uint32_t& readBytes, GTDIReadCounterStreamExceptions& exceptions )
+    TCompletionCode CDriverInterfaceLinuxPerf::ReadOaStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t reportSize, const uint32_t reportsToRead, char* reportData, uint32_t& readBytes, GTDIReadCounterStreamExceptions& exceptions )
     {
-        const int32_t streamId = metricsDevice.GetStreamId();
+        const int32_t streamId = oaConcurrentGroup.GetStreamId();
 
         if( streamId < 0 )
         {
@@ -989,7 +973,7 @@ namespace MetricsDiscoveryInternal
         const size_t     perfBytesToRead = reportsToRead * perfReportSize + oaHeaderSize; // Adding header for flag only reports, e.g. for situations where user
                                                                                           // requests 1 report, but first report from i915 Perf is REPORT_LOST flag.
 
-        auto& streamBuffer = metricsDevice.GetStreamBuffer();
+        auto& streamBuffer = oaConcurrentGroup.GetStreamBuffer();
 
         // Resize report buffer if needed
         if( streamBuffer.size() < perfBytesToRead )
@@ -1113,36 +1097,24 @@ namespace MetricsDiscoveryInternal
     //     send for the second time).
     //
     // Input:
-    //     TRegister**    regVector      - array of pointers to registers to send (add)
-    //     const uint32_t regCount       - register count
-    //     const uint32_t subDeviceIndex - sub device index
-    //     const char*    requestedGuid  - [optional] GUID under which configuration will be added, if nullptr GUID will be generated
-    //     const bool     isOaMert       - true if OA MERT configuration
-    //     int32_t&       addedConfigId  - (OUT) added oa configuration ID, -1 if error
+    //     TRegister**              regVector      - array of pointers to registers to send (add)
+    //     const uint32_t           regCount       - register count
+    //     const uint32_t           subDeviceIndex - sub device index
+    //     const TReportType        reportType     - report type
+    //     const TConfigurationType configType     - configuration type (stream, OA, MERT)
+    //     int32_t&                 addedConfigId  - (OUT) added oa configuration ID, -1 if error
     //
     // Output:
     //     TCompletionCode               - *CC_OK* means success
     //
     //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxPerf::AddOaConfig( TRegister** regVector, const uint32_t regCount, const uint32_t subDeviceIndex, const char* requestedGuid, const bool isOaMert, int32_t& addedConfigId )
+    TCompletionCode CDriverInterfaceLinuxPerf::AddOaConfig( TRegister** regVector, const uint32_t regCount, const uint32_t subDeviceIndex, const TReportType reportType, const TConfigurationType configType, int32_t& addedConfigId )
     {
         MD_LOG_ENTER_A( m_adapterId );
-        MD_CHECK_PTR_RET_A( m_adapterId, regVector, CC_ERROR_INVALID_PARAMETER );
-        if( isOaMert )
-        {
-            addedConfigId = -1;
-            MD_LOG_A( m_adapterId, LOG_WARNING, "OA MERT configuration is not supported" );
-            return CC_ERROR_NOT_SUPPORTED;
-        }
-        if( !regCount )
-        {
-            addedConfigId = -1;
-            MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Empty configuration" );
-            return CC_ERROR_GENERAL;
-        }
 
-        TCompletionCode                           ret  = CC_OK;
-        const char*                               guid = requestedGuid;
+        TCompletionCode ret = ValidateAddOaConfigParams( regVector, regCount, configType, addedConfigId );
+        MD_CHECK_CC_RET_A( m_adapterId, ret );
+
         std::vector<iu_i915_perf_config_register> noaRegisters;
         std::vector<iu_i915_perf_config_register> flexRegisters;
         std::vector<iu_i915_perf_config_register> oaRegisters;
@@ -1158,11 +1130,10 @@ namespace MetricsDiscoveryInternal
                                                                            : ( regVector[i]->type == REGISTER_TYPE_OA ? oaRegisters
                                                                                                                       : noaRegisters );
                 registers.push_back( { regVector[i]->offset, regVector[i]->value } );
-                if( !guid )
-                {
-                    regsString += std::to_string( regVector[i]->offset ) + '.';
-                    regsString += std::to_string( regVector[i]->value ) + ';';
-                }
+
+                regsString += std::to_string( regVector[i]->offset ) + '.';
+                regsString += std::to_string( regVector[i]->value ) + ';';
+
                 MD_LOG_A( m_adapterId, LOG_DEBUG, "regOffset: %#x, regValue: %#x", regVector[i]->offset, regVector[i]->value );
             }
         }
@@ -1174,24 +1145,16 @@ namespace MetricsDiscoveryInternal
             return CC_ERROR_GENERAL;
         }
 
-        // 2. GENERATE CONFIG GUID (if needed) - string formatted like "%08x-%04x-%04x-%04x-%012x"
-        char generatedGuid[MD_PERF_GUID_LENGTH];
-        if( !guid )
-        {
-            std::hash<std::string> stringHash;
+        // 2. GENERATE CONFIG GUID
+        const std::string guid = GenerateConfigGuid( subDeviceIndex, reportType, std::hash<std::string>{}( regsString ), configType );
 
-            // Use std::hash for GUID generation
-            snprintf( generatedGuid, sizeof( generatedGuid ), "%08x-%04x-%04x-%04x-%012x", 0, 0, subDeviceIndex, 0, static_cast<uint32_t>( stringHash( regsString ) ) );
-            guid = generatedGuid;
-        }
-
-        MD_LOG_A( m_adapterId, LOG_DEBUG, "Adding configuration under guid: %s", guid );
+        MD_LOG_A( m_adapterId, LOG_DEBUG, "Adding configuration under guid: %s", guid.c_str() );
 
         // 3. SET PARAMS
         drm_i915_perf_oa_config param = {};
 
         static_assert( sizeof( param.uuid ) == ( MD_PERF_GUID_LENGTH - 1 ), "GUID length mismatch with i915 Perf API" );
-        iu_memcpy_s( param.uuid, sizeof( param.uuid ), guid, MD_PERF_GUID_LENGTH - 1 ); // Copy without ending '\0' (size 36)
+        iu_memcpy_s( param.uuid, sizeof( param.uuid ), guid.c_str(), MD_PERF_GUID_LENGTH - 1 ); // Copy without ending '\0' (size 36)
 
         param.boolean_regs_ptr = reinterpret_cast<uint64_t>( oaRegisters.data() );
         param.mux_regs_ptr     = reinterpret_cast<uint64_t>( noaRegisters.data() );
@@ -1203,23 +1166,21 @@ namespace MetricsDiscoveryInternal
 
         // 4. ADD CONFIG TO I915 PERF
         addedConfigId = SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_I915_PERF_ADD_CONFIG, &param );
-        if( addedConfigId == -1 )
-        {
-            if( errno != EADDRINUSE ) // errno == 98 (EADDRINUSE) means set with the given GUID is already added
-            {
-                MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Adding i915 Perf configuration failed, errno: %d (%s)", errno, strerror( errno ) );
-                ret = CC_ERROR_GENERAL;
-            }
-            else
-            {
-                MD_LOG_A( m_adapterId, LOG_DEBUG, "Configuration with the given GUID already added, reusing" );
-                ret = GetOaMetricSetId( guid, addedConfigId );
-            }
-        }
 
-        if( ret == CC_OK )
+        ret = GetAddedOaConfigId( guid, addedConfigId );
+
+        // 5. IF CONFIG IS ALREADY ADDED, REMOVE IT AND ADD AGAIN TO UPDATE INDEX NODE FOR QUERY
+        if( ret == CC_ALREADY_INITIALIZED && ( configType == CONFIGURATION_TYPE_EVENT_OA || configType == CONFIGURATION_TYPE_EVENT_OA_MERT ) )
         {
-            MD_LOG_A( m_adapterId, LOG_DEBUG, "i915 Perf configuration added/reused, id: %d", addedConfigId );
+            if( RemoveOaConfig( addedConfigId ) == CC_OK )
+            {
+                std::unique_lock<std::shared_mutex> lock( m_Mutex );
+                m_AddedOaConfigs.erase( addedConfigId );
+            }
+
+            addedConfigId = SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_I915_PERF_ADD_CONFIG, &param );
+
+            ret = GetAddedOaConfigId( guid, addedConfigId );
         }
 
         MD_LOG_EXIT_A( m_adapterId );
@@ -1232,53 +1193,41 @@ namespace MetricsDiscoveryInternal
     //     CDriverInterfaceLinuxPerf
     //
     // Method:
+    //     IsOaMertConfigSupported
+    //
+    // Description:
+    //     Returns information if OA MERT configuration is supported. i915 Perf never supports it.
+    //
+    // Output:
+    //     bool - always *false*
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    bool CDriverInterfaceLinuxPerf::IsOaMertConfigSupported()
+    {
+        return false;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxPerf
+    //
+    // Method:
     //     RemoveOaConfig
     //
     // Description:
-    //     Removes from i915 Perf previously added OA config based on its ID.
-    //
-    //     Note from i915: "Configs can be removed while being used, they will stop appearing in SysFs
-    //                      and their content will be freed when the stream using the config is closed."
+    //     Sends the remove-config ioctl request to i915 Perf for the given config id.
     //
     // Input:
-    //     int32_t         oaConfigId - valid oa configuration ID (previously added)
+    //     const uint64_t oaConfigId - valid oa configuration ID (previously added)
     //
     // Output:
-    //     TCompletionCode            - *CC_OK* means success
+    //     int32_t                   - ioctl result, 0 on success
     //
     //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxPerf::RemoveOaConfig( int32_t oaConfigId )
+    int32_t CDriverInterfaceLinuxPerf::RemoveOaConfig( const uint64_t oaConfigId )
     {
-        TCompletionCode ret = CC_OK;
-
-        // Note from i915: "Configs can be removed while being used, they will stop appearing in SysFs
-        //                  and their content will be freed when the stream using the config is closed."
-
-        if( oaConfigId != -1 )
-        {
-            MD_LOG_A( m_adapterId, LOG_DEBUG, "Removing i915 Perf configuration with id: %d", oaConfigId );
-
-            uint64_t      oaConfigId64 = static_cast<uint64_t>( oaConfigId );
-            const int32_t ioctlResult  = SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_I915_PERF_REMOVE_CONFIG, &oaConfigId64 );
-            if( ioctlResult )
-            {
-                if( errno != ENOENT ) // errno == 2 (ENOENT) means set with the given ID doesn't exist
-                {
-                    MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Removing i915 Perf configuration with id %d failed, config not found", oaConfigId );
-                }
-                else
-                {
-                    MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Removing i915 Perf configuration with id %d failed, errno: %d (%s)", oaConfigId, errno, strerror( errno ) );
-                }
-                ret = CC_ERROR_GENERAL;
-            }
-            else
-            {
-                MD_LOG_A( m_adapterId, LOG_DEBUG, "i915 Perf configuration with id %d removed", oaConfigId );
-            }
-        }
-
-        return ret;
+        return SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_I915_PERF_REMOVE_CONFIG, const_cast<uint64_t*>( &oaConfigId ) );
     }
 
     //////////////////////////////////////////////////////////////////////////////
@@ -1643,50 +1592,6 @@ namespace MetricsDiscoveryInternal
     //     CDriverInterfaceLinuxPerf
     //
     // Method:
-    //     GetSliceMask
-    //
-    // Description:
-    //     Allows to obtain slice mask value.
-    //     Works only on Xe+ platforms.
-    //
-    // Input:
-    //     int32_t&        sliceMask        - (OUT) data
-    //     CMetricsDevice& metricsDevice    - a reference to device
-    //
-    // Output:
-    //     TCompletionCode                  - *CC_OK* means success
-    //
-    //////////////////////////////////////////////////////////////////////////////
-    TCompletionCode CDriverInterfaceLinuxPerf::GetSliceMask( int32_t& sliceMask, CMetricsDevice& metricsDevice )
-    {
-        sliceMask = 0;
-
-        // Return value is a mask of enabled subslices or dual-subslices
-        uint32_t subslicePerSlice = IsDualSubsliceSupported()
-            ? GetGtMaxDualSubslicePerSlice()
-            : GetGtMaxSubslicePerSlice();
-
-        int64_t         subsliceMask = 0;
-        TCompletionCode ret          = GetSubsliceMask( subsliceMask, metricsDevice );
-        MD_CHECK_CC_RET_A( m_adapterId, ret );
-
-        for( uint32_t i = 0; i < MD_MAX_SLICE; ++i )
-        {
-            if( ( subsliceMask >> ( subslicePerSlice * i ) ) & MD_BITMASK( subslicePerSlice ) )
-            {
-                sliceMask |= MD_BIT( i );
-            }
-        }
-
-        return ret;
-    }
-
-    //////////////////////////////////////////////////////////////////////////////
-    //
-    // Class:
-    //     CDriverInterfaceLinuxPerf
-    //
-    // Method:
     //     GetSubsliceMask
     //
     // Description:
@@ -1708,14 +1613,7 @@ namespace MetricsDiscoveryInternal
 
         subsliceMask = 0;
 
-        if( IsDualSubsliceSupported() )
-        {
-            MD_LOG_A( m_adapterId, LOG_INFO, "Obtaining dual subslice mask" );
-        }
-        else
-        {
-            MD_LOG_A( m_adapterId, LOG_INFO, "Obtaining subslice mask" );
-        }
+        MD_LOG_A( m_adapterId, LOG_INFO, "Obtaining %ssubslice mask", IsDualSubsliceSupported() ? "dual " : "" );
 
         // Get subslice or dual-subslice mask per sub device.
         auto buffer = std::vector<uint8_t>();

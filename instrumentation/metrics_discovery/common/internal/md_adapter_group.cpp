@@ -286,7 +286,7 @@ namespace MetricsDiscoveryInternal
 
         MD_SAFE_DELETE( offlineDevice );
 
-        if( m_offlineDevicesVector.size() == 0 )
+        if( m_offlineDevicesVector.empty() )
         {
             MD_SAFE_DELETE( m_offlineDriverInterface );
             MD_SAFE_DELETE( m_offlineAdapter );
@@ -405,7 +405,7 @@ namespace MetricsDiscoveryInternal
         MD_SAFE_DELETE( offlineDevice );
         m_offlineDevicesVector.erase( deviceIterator );
 
-        if( m_offlineDevicesVector.size() == 0 )
+        if( m_offlineDevicesVector.empty() )
         {
             MD_SAFE_DELETE( m_offlineDriverInterface );
             MD_SAFE_DELETE( m_offlineAdapter );
@@ -958,7 +958,7 @@ namespace MetricsDiscoveryInternal
     //////////////////////////////////////////////////////////////////////////////
     CAdapter* CAdapterGroup::ChooseDefaultAdapter()
     {
-        if( !m_adapterVector.size() )
+        if( m_adapterVector.empty() )
         {
             return nullptr;
         }

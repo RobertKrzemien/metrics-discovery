@@ -79,7 +79,7 @@ namespace MetricsDiscoveryInternal
         {
             return CC_ERROR_NOT_SUPPORTED;
         };
-        virtual TCompletionCode SendPmRegsConfig( [[maybe_unused]] std::vector<TRegister*>& pmRegs, [[maybe_unused]] const uint32_t subDeviceIndex, [[maybe_unused]] const GTDI_OA_BUFFER_TYPE oaBufferType, [[maybe_unused]] const TReportType reportType ) final
+        virtual TCompletionCode SendPmRegsConfig( [[maybe_unused]] std::vector<TRegister*>& pmRegs, [[maybe_unused]] CMetricSet& metricSet ) final
         {
             return CC_ERROR_NOT_SUPPORTED;
         };

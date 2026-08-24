@@ -76,6 +76,13 @@ namespace MetricsDiscoveryInternal
         TStreamType         GetStreamType() const;
         GTDI_OA_BUFFER_TYPE GetOaBufferType() const;
 
+        // Stream:
+        int32_t               GetStreamId() const;
+        int32_t               GetStreamConfigId() const;
+        void                  SetStreamId( const int32_t id );
+        void                  SetStreamConfigId( const int32_t id );
+        std::vector<uint8_t>& GetStreamBuffer();
+
         void* GetStreamEventHandle();
         void  SetStreamEventHandle( void* streamEventHandle );
 
@@ -110,6 +117,11 @@ namespace MetricsDiscoveryInternal
         std::vector<CInformation*>      m_ioGpuContextInfoVector;
         std::vector<CMetricEnumerator*> m_metricEnumeratorVector;
         std::vector<TArchEvent*>        m_archEventVector;
+
+        // Stream:
+        int32_t              m_streamId;
+        int32_t              m_streamConfigId;
+        std::vector<uint8_t> m_streamBuffer;
     };
 
 } // namespace MetricsDiscoveryInternal

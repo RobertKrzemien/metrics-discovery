@@ -109,13 +109,6 @@ namespace MetricsDiscoveryInternal
 
         GTDI_OA_BUFFER_MASK GetOaBufferMask();
 
-        // Performance stream.
-        int32_t               GetStreamId();
-        int32_t               GetStreamConfigId();
-        void                  SetStreamId( const int32_t id );
-        void                  SetStreamConfigId( const int32_t id );
-        std::vector<uint8_t>& GetStreamBuffer();
-
     private:
         // Methods to read from buffer must be used in correct order
         TCompletionCode ReadGlobalSymbolsFromBuffer( uint8_t*& bufferPtr, const uint8_t* bufferBeginOffset, const uint32_t bufferSize, const uint32_t bufferVersion );
@@ -136,11 +129,6 @@ namespace MetricsDiscoveryInternal
         CAdapter&                      m_adapter;
         CDriverInterface&              m_driverInterface;
         CSymbolSet                     m_symbolSet;
-
-        // Stream:
-        int32_t              m_streamId;
-        int32_t              m_streamConfigId;
-        std::vector<uint8_t> m_streamBuffer;
 
         // Sub device:
         uint32_t m_subDeviceIndex;

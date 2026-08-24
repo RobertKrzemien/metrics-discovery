@@ -54,9 +54,6 @@ namespace MetricsDiscoveryInternal
         , m_adapter( adapter )
         , m_driverInterface( driverInterface )
         , m_symbolSet( *this, driverInterface )
-        , m_streamId( -1 )
-        , m_streamConfigId( -1 )
-        , m_streamBuffer()
         , m_subDeviceIndex( subDeviceIndex )
         , m_platformIndex( 0 )
         , m_gtType( GT_TYPE_UNKNOWN )
@@ -2054,106 +2051,6 @@ namespace MetricsDiscoveryInternal
         }
 
         return m_oaBufferMask;
-    }
-
-    //////////////////////////////////////////////////////////////////////////////
-    //
-    // Class:
-    //     CMetricsDevice
-    //
-    // Method:
-    //     GetStreamConfigId
-    //
-    // Description:
-    //     Returns stream configuration id.
-    //
-    // Output:
-    //     int32_t - configuration id.
-    //
-    //////////////////////////////////////////////////////////////////////////////
-    int32_t CMetricsDevice::GetStreamConfigId()
-    {
-        return m_streamConfigId;
-    }
-
-    //////////////////////////////////////////////////////////////////////////////
-    //
-    // Class:
-    //     CMetricsDevice
-    //
-    // Method:
-    //     GetStreamId
-    //
-    // Description:
-    //     Returns stream id.
-    //
-    // Output:
-    //     int32_t - stream id.
-    //
-    //////////////////////////////////////////////////////////////////////////////
-    int32_t CMetricsDevice::GetStreamId()
-    {
-        return m_streamId;
-    }
-
-    //////////////////////////////////////////////////////////////////////////////
-    //
-    // Class:
-    //     CMetricsDevice
-    //
-    // Method:
-    //     SetStreamId
-    //
-    // Description:
-    //     Sets stream id.
-    //
-    // Input:
-    //     const int32_t id - stream id.
-    //
-    //////////////////////////////////////////////////////////////////////////////
-    void CMetricsDevice::SetStreamId( const int32_t id )
-    {
-        m_streamId = id;
-    }
-
-    //////////////////////////////////////////////////////////////////////////////
-    //
-    // Class:
-    //     CMetricsDevice
-    //
-    // Method:
-    //     SetStreamConfigId
-    //
-    // Description:
-    //     Sets stream configuration id.
-    //
-    // Input:
-    //     const int32_t id - configuration id.
-    //
-    //////////////////////////////////////////////////////////////////////////////
-    void CMetricsDevice::SetStreamConfigId( const int32_t id )
-    {
-        m_streamConfigId = id;
-    }
-
-    //////////////////////////////////////////////////////////////////////////////
-    //
-    // Class:
-    //     CMetricsDevice
-    //
-    // Method:
-    //     GetStreamBuffer
-    //
-    // Description:
-    //     Returns preallocated buffer for reading data from tbs stream to avoid new allocations on every read.
-    //
-    // Output:
-    //     std::vector<uint8_t> - tbs stream buffer.
-    //
-    //////////////////////////////////////////////////////////////////////////////
-    std::vector<uint8_t>& CMetricsDevice::GetStreamBuffer()
-    {
-        return m_streamBuffer;
     }
 
     //////////////////////////////////////////////////////////////////////////////

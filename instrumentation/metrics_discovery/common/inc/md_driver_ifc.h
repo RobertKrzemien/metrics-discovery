@@ -116,7 +116,7 @@ namespace MetricsDiscoveryInternal
         virtual TCompletionCode SendSupportEnableEscape( bool enable )                                                                                                                        = 0;
         virtual TCompletionCode SendDeviceInfoParamEscape( GTDI_DEVICE_PARAM param, GTDIDeviceInfoParamExtOut& out, CMetricsDevice& metricsDevice )                                           = 0;
         virtual TCompletionCode GetMaxMinOaBufferSize( const GTDI_OA_BUFFER_TYPE oaBufferType, const GTDI_DEVICE_PARAM param, GTDIDeviceInfoParamExtOut& out, CMetricsDevice& metricsDevice ) = 0;
-        virtual TCompletionCode SendPmRegsConfig( std::vector<TRegister*>& pmRegs, const uint32_t subDeviceIndex, const GTDI_OA_BUFFER_TYPE oaBufferType, const TReportType reportType )      = 0;
+        virtual TCompletionCode SendPmRegsConfig( std::vector<TRegister*>& pmRegs, CMetricSet& metricSet )                                                                                    = 0;
         virtual TCompletionCode SendReadRegsConfig( TRegister** regVector, uint32_t regCount )                                                                                                = 0;
         virtual TCompletionCode GetPmRegsConfigHandles( uint32_t* oaConfigHandle, uint32_t* rrConfigHandle )                                                                                  = 0;
         virtual TCompletionCode ValidatePmRegsConfig( TRegister* regVector, uint32_t regCount, uint32_t platform )                                                                            = 0;

@@ -1454,7 +1454,7 @@ namespace MetricsDiscoveryInternal
     {
         const uint32_t adapterId = m_device.GetAdapter().GetAdapterId();
 
-        CRegisterSet* registerSet = m_startRegisterSetList.size() > 0 ? m_startRegisterSetList.back() : nullptr;
+        CRegisterSet* registerSet = !m_startRegisterSetList.empty() ? m_startRegisterSetList.back() : nullptr;
         MD_CHECK_PTR_RET_A( adapterId, registerSet, CC_ERROR_GENERAL );
 
         TRegister* reg = registerSet->AddConfigRegister( offset, value, type );
@@ -1678,10 +1678,9 @@ namespace MetricsDiscoveryInternal
     //////////////////////////////////////////////////////////////////////////////
     TCompletionCode CMetricSet::SendStartConfiguration( bool sendQueryConfigFlag )
     {
-        auto&           driverInterface   = m_device.GetDriverInterface();
-        auto&           oaConcurrentGroup = static_cast<COAConcurrentGroup&>( *m_concurrentGroup );
-        const uint32_t  adapterId         = m_device.GetAdapter().GetAdapterId();
-        TCompletionCode ret               = CC_OK;
+        auto&           driverInterface = m_device.GetDriverInterface();
+        const uint32_t  adapterId       = m_device.GetAdapter().GetAdapterId();
+        TCompletionCode ret             = CC_OK;
 
         if( CheckSendConfigRequired( sendQueryConfigFlag ) )
         {
@@ -1698,7 +1697,7 @@ namespace MetricsDiscoveryInternal
 
             // Verify if programming is present
             // "m_startRegisterSetList may be empty for e.g. PipelineStatistics"
-            if( ( pmRegs.size() > 0 || readRegs.size() > 0 ) || m_startRegisterSetList.size() == 0 )
+            if( ( !pmRegs.empty() || !readRegs.empty() ) || m_startRegisterSetList.empty() )
             {
                 if( sendQueryConfigFlag && ( m_currentParams->ApiMask & API_TYPE_IOSTREAM ) )
                 {
@@ -1707,15 +1706,15 @@ namespace MetricsDiscoveryInternal
                 }
 
                 // Send configurations
-                ret = driverInterface.SendPmRegsConfig( pmRegs, m_device.GetSubDeviceIndex(), oaConcurrentGroup.GetOaBufferType(), m_reportType );
-                if( ret == CC_OK && readRegs.size() )
+                ret = driverInterface.SendPmRegsConfig( pmRegs, *this );
+                if( ret == CC_OK && !readRegs.empty() )
                 {
                     ret = driverInterface.SendReadRegsConfig( readRegs.data(), static_cast<uint32_t>( readRegs.size() ) );
                 }
 
                 if( ret == CC_OK )
                 {
-                    m_isReadRegsCfgSet = readRegs.size() > 0;
+                    m_isReadRegsCfgSet = !readRegs.empty();
 
                     m_pmRegsConfigInfo.IsQueryConfig = sendQueryConfigFlag;
                     driverInterface.GetPmRegsConfigHandles( &m_pmRegsConfigInfo.OaConfigHandle, &m_pmRegsConfigInfo.RrConfigHandle );

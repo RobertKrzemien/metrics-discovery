@@ -15,8 +15,10 @@ SPDX-License-Identifier: MIT
 #include "md_driver_ifc.h"
 
 #include <mutex>
+#include <shared_mutex>
 #include <chrono>
-#include <vector> // for Query
+#include <set>
+#include <vector>
 #include <condition_variable>
 
 //////////////////////////////////////////////////////////////////////////////
@@ -25,10 +27,12 @@ SPDX-License-Identifier: MIT
 //     General defines used by Perf driver interface.
 //
 //////////////////////////////////////////////////////////////////////////////
-#define MD_MAX_PATH_LENGTH          128
-#define MD_PERF_GUID_LENGTH         37                                     // GUID is a string formatted like "%08x-%04x-%04x-%04x-%012x"
-#define MD_PERF_GUID_FOR_QUERY      "2f01b241-7014-42a7-9eb6-a925cad3daba" // static GUID for storing Query configuration
-#define MD_PERF_GUID_FOR_QUERY_MERT "8c3d5e9a-4b62-42a7-bd71-3e6a9f2c8d14" // static GUID for storing Query Mert configuration
+#define MD_MAX_PATH_LENGTH                128
+#define MD_PERF_GUID                      "%08x-%04x-%04x-%04x-%012" PRIx64
+#define MD_PERF_GUID_LENGTH               37         // GUID is a string formatted like "%08x-%04x-%04x-%04x-%012x"
+#define MD_PERF_GUID_PREFIX_STREAM        0xdf9c1d24 // static GUID prefix for storing Stream configuration
+#define MD_PERF_GUID_PREFIX_QUERY_OA      0x2f01b241 // static GUID prefix for storing Query configuration
+#define MD_PERF_GUID_PREFIX_QUERY_OA_MERT 0x8c3d5e9a // static GUID prefix for storing Query Mert configuration
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -313,15 +317,15 @@ namespace MetricsDiscoveryInternal
         // Read global symbols per tile.
         virtual TCompletionCode GetEuCoresTotalCount( GTDIDeviceInfoParamExtOut& out, CMetricsDevice& metricsDevice )       = 0;
         virtual TCompletionCode GetEuCoresPerSubsliceCount( GTDIDeviceInfoParamExtOut& out, CMetricsDevice& metricsDevice ) = 0;
-        virtual TCompletionCode GetSliceMask( int32_t& sliceMask, CMetricsDevice& metricsDevice )                           = 0;
         virtual TCompletionCode GetSubsliceMask( int64_t& subsliceMask, CMetricsDevice& metricsDevice )                     = 0;
+        virtual TCompletionCode GetSliceMask( int32_t& sliceMask, CMetricsDevice& metricsDevice ) final;
 
         // General
         virtual TCompletionCode ForceSupportDisable() final;
         virtual TCompletionCode SendSupportEnableEscape( bool enable ) final;
         virtual TCompletionCode SendDeviceInfoParamEscape( GTDI_DEVICE_PARAM param, GTDIDeviceInfoParamExtOut& out, CMetricsDevice& metricsDevice ) final;
         virtual TCompletionCode GetMaxMinOaBufferSize( const GTDI_OA_BUFFER_TYPE oaBufferType, const GTDI_DEVICE_PARAM param, GTDIDeviceInfoParamExtOut& out, CMetricsDevice& metricsDevice ) final;
-        virtual TCompletionCode SendPmRegsConfig( std::vector<TRegister*>& pmRegs, const uint32_t subDeviceIndex, const GTDI_OA_BUFFER_TYPE oaBufferType, const TReportType reportType ) final;
+        virtual TCompletionCode SendPmRegsConfig( std::vector<TRegister*>& pmRegs, CMetricSet& metricSet ) final;
         virtual TCompletionCode SendReadRegsConfig( TRegister** regVector, uint32_t regCount ) final;
         virtual TCompletionCode GetPmRegsConfigHandles( uint32_t* oaConfigHandle, uint32_t* rrConfigHandle ) final;
         virtual TCompletionCode ValidatePmRegsConfig( TRegister* regVector, uint32_t regCount, uint32_t platformId ) final;
@@ -352,17 +356,20 @@ namespace MetricsDiscoveryInternal
 
     protected:
         // OA
-        virtual TCompletionCode OpenOaStream( CMetricsDevice& metricsDevice, uint32_t oaMetricSetId, uint32_t oaReportType, uint32_t oaReportSize, uint32_t timerPeriodExponent, uint32_t bufferSize, const GTDI_OA_BUFFER_TYPE oaBufferType ) = 0;
-        virtual TCompletionCode ReadOaStream( CMetricsDevice& metricsDevice, uint32_t reportSize, uint32_t reportsToRead, char* reportData, uint32_t& readBytes, GTDIReadCounterStreamExceptions& exceptions )                                 = 0;
-        TCompletionCode         CloseOaStream( CMetricsDevice& metricsDevice );
-        TCompletionCode         WaitForOaStreamReports( CMetricsDevice& metricsDevice, uint32_t timeoutMs );
+        virtual TCompletionCode OpenOaStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t oaMetricSetId, const uint32_t timerPeriodExponent, uint32_t bufferSize )                                                       = 0;
+        virtual TCompletionCode ReadOaStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t reportSize, const uint32_t reportsToRead, char* reportData, uint32_t& readBytes, GTDIReadCounterStreamExceptions& exceptions ) = 0;
+        TCompletionCode         CloseOaStream( COAConcurrentGroup& oaConcurrentGroup );
+        TCompletionCode         WaitForOaStreamReports( COAConcurrentGroup& oaConcurrentGroup, uint32_t timeoutMs );
         virtual TCompletionCode ChangeIoStreamState( const int32_t streamId, const TIoStreamState state ) = 0;
-        std::string             GenerateQueryGuid( const uint32_t subDeviceIndex, const TReportType reportType, const bool isOaMert );
-        virtual TCompletionCode AddOaConfig( TRegister** regVector, const uint32_t regCount, const uint32_t subDeviceIndex, const char* requestedGuid, const bool isOaMert, int32_t& addedConfigId ) = 0;
-        virtual TCompletionCode RemoveOaConfig( int32_t oaConfigId )                                                                                                                                 = 0;
-        TCompletionCode         RemoveOaConfigQuery( const char* guid );
+        std::string             GenerateConfigGuid( const uint32_t subDeviceIndex, const TReportType reportType, const uint64_t hash, const TConfigurationType configType );
+        virtual TCompletionCode AddOaConfig( TRegister** regVector, const uint32_t regCount, const uint32_t subDeviceIndex, const TReportType reportType, const TConfigurationType configType, int32_t& addedConfigId ) = 0;
+        virtual TCompletionCode RemoveOaConfig( const int32_t oaConfigId ) final;
+        void                    RemoveAllAddedOaConfigs();
         TCompletionCode         GetOaMetricSetId( const char* guid, int32_t& oaMetricSetId );
-        bool                    OaMetricSetExists( const char* guid );
+        TCompletionCode         ValidateAddOaConfigParams( TRegister** regVector, const uint32_t regCount, const TConfigurationType configType, int32_t& addedConfigId );
+        TCompletionCode         GetAddedOaConfigId( const std::string& guid, int32_t& addedConfigId );
+        virtual bool            IsOaMertConfigSupported()                       = 0;
+        virtual int32_t         RemoveOaConfig( const uint64_t oaConfigId )     = 0;
         virtual uint32_t        GetOaReportType( const TReportType reportType ) = 0;
         virtual TCompletionCode GetOaTimestampFrequency( uint64_t& frequency )  = 0;
         virtual TCompletionCode GetCsTimestampFrequency( uint64_t& frequency )  = 0;
@@ -416,9 +423,10 @@ namespace MetricsDiscoveryInternal
         TGfxGtType MapDeviceInfoToInstrGtTypeGfxVer12( const TGfxDeviceInfo& gfxDeviceInfo, CMetricsDevice& metricsDevice );
 
         // General utils
-        uint32_t GetTimerPeriodExponent( uint32_t nsTimerPeriod );
-        uint32_t GetNsTimerPeriod( uint32_t timerPeriodExponent );
-        uint32_t CalculateOaBufferSize( const uint32_t requestedBufferSize, CMetricsDevice& metricsDevice );
+        uint32_t        GetTimerPeriodExponent( uint32_t nsTimerPeriod );
+        uint32_t        GetNsTimerPeriod( uint32_t timerPeriodExponent );
+        uint32_t        CalculateOaBufferSize( const uint32_t requestedBufferSize, CMetricsDevice& metricsDevice );
+        TCompletionCode GetOamBaseEngineInstance( CSubDevices& subDevices, const uint32_t subDeviceIndex, const uint32_t videoEnhanceEngineClass, uint32_t& baseEngineInstance );
 
     protected:
         // Variables
@@ -428,7 +436,8 @@ namespace MetricsDiscoveryInternal
         TDrmVersion m_DrmVersion;
 
         // Query
-        std::vector<int32_t> m_AddedOaConfigs; // IDs of configurations added to i915 Perf or XE OA for the need of query, needed for later config removal
+        std::shared_mutex m_Mutex;
+        std::set<int32_t> m_AddedOaConfigs; // IDs of configurations added to kmd for the need of query, needed for later config removal
 
         // Cached values
         uint64_t       m_CachedBoostFrequency;

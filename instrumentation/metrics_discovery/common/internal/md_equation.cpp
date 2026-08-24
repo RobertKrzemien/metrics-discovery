@@ -622,7 +622,7 @@ namespace MetricsDiscoveryInternal
         }
         if( elementsCount > 0 )
         {
-            qwordValue = ( equationStack.size() > 0 ) ? equationStack.back() : 0LL;
+            qwordValue = ( !equationStack.empty() ) ? equationStack.back() : 0LL;
         }
         else
         {

@@ -729,7 +729,7 @@ namespace MetricsDiscoveryInternal
         const uint32_t gtId,
         const uint32_t oaUnit )
     {
-        if( m_subDeviceEngines.size() > 0 )
+        if( !m_subDeviceEngines.empty() )
         {
             return m_subDeviceEngines.back().AddEngine( engineClass, engineInstance, gtId, oaUnit );
         }

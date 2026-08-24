@@ -70,6 +70,18 @@ namespace MetricsDiscoveryInternal
     } TStreamType;
 
     ///////////////////////////////////////////////////////////////////////////////
+    // Configuration types:                                                      //
+    ///////////////////////////////////////////////////////////////////////////////
+    typedef enum EConfigurationType
+    {
+        CONFIGURATION_TYPE_STREAM_OA = 0,
+        CONFIGURATION_TYPE_STREAM_OA_MERT,
+        CONFIGURATION_TYPE_EVENT_OA,
+        CONFIGURATION_TYPE_EVENT_OA_MERT,
+        // ...
+    } TConfigurationType;
+
+    ///////////////////////////////////////////////////////////////////////////////
     // Override types:                                                           //
     ///////////////////////////////////////////////////////////////////////////////
     typedef enum EOverrideType
