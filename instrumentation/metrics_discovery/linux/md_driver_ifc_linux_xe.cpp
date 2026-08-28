@@ -1,6 +1,6 @@
 /*========================== begin_copyright_notice ============================
 
-Copyright (C) 2024-2026 Intel Corporation
+Copyright (C) 2023-2026 Intel Corporation
 
 SPDX-License-Identifier: MIT
 
@@ -15,6 +15,7 @@ SPDX-License-Identifier: MIT
 #include "md_adapter.h"
 #include "md_metrics_device.h"
 #include "md_oa_concurrent_group.h"
+#include "md_euss_concurrent_group.h"
 #include "md_metric_set.h"
 #include "md_utils.h"
 
@@ -61,6 +62,21 @@ namespace MetricsDiscoveryInternal
     {
         uint32_t address;
         uint32_t value;
+    };
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Struct:
+    //     iu_xe_euss_report_info
+    //
+    // Description:
+    //     Additional EUSS report info not included in kernel EUSS data.
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    struct iu_xe_euss_report_info
+    {
+        uint16_t subsliceIndex;
+        uint16_t flags;
     };
 
     //////////////////////////////////////////////////////////////////////////////
@@ -660,11 +676,15 @@ namespace MetricsDiscoveryInternal
         }
 
         // We want a non-blocking read.
-        if( const int32_t oldFlags = fcntl( oaEventFd, F_GETFL, 0 );
-            oldFlags != -1 )
+        const int32_t oldFlagsFl = fcntl( oaEventFd, F_GETFL, 0 );
+        const int32_t oldFlagsFd = fcntl( oaEventFd, F_GETFD, 0 );
+
+        if( oldFlagsFl != -1 && oldFlagsFd != -1 )
         {
-            if( fcntl( oaEventFd, F_SETFL, oldFlags | O_CLOEXEC | O_NONBLOCK ) == -1 )
+            if( fcntl( oaEventFd, F_SETFL, oldFlagsFl | O_NONBLOCK ) == -1 ||
+                fcntl( oaEventFd, F_SETFD, oldFlagsFd | FD_CLOEXEC ) == -1 )
             {
+                close( oaEventFd );
                 MD_LOG_A( m_adapterId, LOG_ERROR, "Cannot set a non-blocking read" );
                 return CC_ERROR_GENERAL;
             }
@@ -756,7 +776,7 @@ namespace MetricsDiscoveryInternal
                 return CC_ERROR_GENERAL;
             }
         }
-        MD_LOG_A( m_adapterId, LOG_DEBUG, "Read %u bytes (= %lu reports)", xeReadBytes, xeReadBytes / reportSize );
+        MD_LOG_A( m_adapterId, LOG_DEBUG, "Read %u bytes (= %u reports)", xeReadBytes, xeReadBytes / reportSize );
 
         readBytes = xeReadBytes;
 
@@ -1614,6 +1634,350 @@ namespace MetricsDiscoveryInternal
     {
         return ( ( DRM_XE_OA_FORMAT_MASK_FMT_TYPE & reportType ) == DRM_XE_OA_FMT_TYPE_OAM_MPEC ) &&
             oaBufferType != GTDI_OA_BUFFER_TYPE_MERT; // MERT uses OAM report types, but it is not OAM.
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxXe
+    //
+    // Method:
+    //      OpenEussStream
+    //
+    // Description:
+    //     Sends IOCTL opening euss stream.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //     const uint32_t        sampleRate          - sample rate
+    //     const uint32_t        eussBufferSize      - EUSS buffer size
+    //     TIoStreamState&       defaultState        - (out) default state of the stream
+    //
+    // Output:
+    //     TCompletionCode                 - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxXe::OpenEussStream( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t sampleRate, const uint32_t eussBufferSize, TIoStreamState& defaultState )
+    {
+        // Query sampling rates.
+        drm_xe_observation_param param          = {};
+        int32_t                  eussEventFd    = -1;
+        auto&                    device         = eussConcurrentGroup.GetMetricsDevice();
+        auto&                    subDevices     = device.GetAdapter().GetSubDevices();
+        auto                     subDeviceIndex = device.GetSubDeviceIndex();
+        auto                     engine         = TEngineParamsLatest{};
+        auto                     buffer         = std::vector<uint8_t>();
+        TCompletionCode          ret            = QueryDrm( DRM_XE_DEVICE_QUERY_EU_STALL, buffer );
+        const size_t             size           = buffer.size();
+
+        MD_CHECK_CC_RET_A( m_adapterId, ret );
+        MD_CHECK_CC_RET_A( m_adapterId, size ? CC_OK : CC_ERROR_GENERAL );
+
+        const auto eussData = reinterpret_cast<drm_xe_query_eu_stall*>( buffer.data() );
+
+        MD_CHECK_CC_RET_A( m_adapterId, eussData->num_sampling_rates ? CC_OK : CC_ERROR_GENERAL );
+
+        uint32_t nearestSampleRate = 0;
+
+        if( sampleRate == 0 )
+        {
+            nearestSampleRate = eussData->sampling_rates[0];
+        }
+        else if( sampleRate < eussData->num_sampling_rates )
+        {
+            nearestSampleRate = eussData->sampling_rates[sampleRate - 1];
+        }
+        else
+        {
+            nearestSampleRate = eussData->sampling_rates[eussData->num_sampling_rates - 1];
+        }
+
+        // Get engine parameters for the sub device.
+        ret = subDevices.GetTbsEngineParams( subDeviceIndex, engine );
+
+        MD_CHECK_CC_RET_A( m_adapterId, ret );
+
+        // Get number of XeCores to calculate wait number of reports.
+        TTypedValue_1_0* xeCoreTotalCount = device.GetGlobalSymbolValueByName( "XeCoreTotalCount" );
+
+        MD_CHECK_CC_RET_A( m_adapterId, ( xeCoreTotalCount && xeCoreTotalCount->ValueUInt32 > 0 ) ? CC_OK : CC_ERROR_GENERAL );
+
+        drm_xe_ext_set_property properties[DRM_XE_EU_STALL_PROP_WAIT_NUM_REPORTS - DRM_XE_EU_STALL_EXTENSION_SET_PROPERTY] = {};
+
+        uint32_t currentIndex = 0;
+        auto     addProperty  = [&]( const uint64_t key, const uint64_t value )
+        {
+            auto& property     = properties[currentIndex];
+            property           = {};
+            property.base.name = DRM_XE_EU_STALL_EXTENSION_SET_PROPERTY;
+            property.property  = key;
+            property.value     = value;
+
+            if( currentIndex > 0 )
+            {
+                properties[currentIndex - 1].base.next_extension = reinterpret_cast<uint64_t>( &property );
+            }
+
+            ++currentIndex;
+        };
+
+        const uint32_t maxBufferSize  = eussData->per_xecore_buf_size * xeCoreTotalCount->ValueUInt32;
+        const uint32_t waitNumReports = ( ( std::min )( maxBufferSize, eussBufferSize ) / eussData->record_size ) / 2;
+
+        addProperty( DRM_XE_EU_STALL_PROP_SAMPLE_RATE, nearestSampleRate );
+        addProperty( DRM_XE_EU_STALL_PROP_WAIT_NUM_REPORTS, waitNumReports );
+        addProperty( DRM_XE_EU_STALL_PROP_GT_ID, engine.GtId );
+
+        param.observation_type = DRM_XE_OBSERVATION_TYPE_EU_STALL;
+        param.observation_op   = DRM_XE_OBSERVATION_OP_STREAM_OPEN;
+        param.param            = reinterpret_cast<uint64_t>( properties );
+
+        MD_LOG_A( m_adapterId, LOG_DEBUG, "Opening XE EUSS stream with params: gt id: %u, waitNumReports: %u, sampleRate: %u", engine.GtId, waitNumReports, nearestSampleRate );
+
+        eussEventFd = SendIoctl( m_DrmDeviceHandle, DRM_IOCTL_XE_OBSERVATION, &param );
+
+        if( eussEventFd == -1 )
+        {
+            MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Opening XE EUSS stream failed, errno: %d (%s)", errno, strerror( errno ) );
+            return CC_ERROR_GENERAL;
+        }
+
+        // We want a non-blocking read.
+        const int32_t oldFlagsFl = fcntl( eussEventFd, F_GETFL, 0 );
+        const int32_t oldFlagsFd = fcntl( eussEventFd, F_GETFD, 0 );
+
+        if( oldFlagsFl != -1 && oldFlagsFd != -1 )
+        {
+            if( fcntl( eussEventFd, F_SETFL, oldFlagsFl | O_NONBLOCK ) == -1 ||
+                fcntl( eussEventFd, F_SETFD, oldFlagsFd | FD_CLOEXEC ) == -1 )
+            {
+                close( eussEventFd );
+                MD_LOG_A( m_adapterId, LOG_ERROR, "Cannot set a non-blocking read" );
+                return CC_ERROR_GENERAL;
+            }
+        }
+
+        eussConcurrentGroup.SetStreamId( eussEventFd );
+
+        defaultState = IO_STREAM_STATE_DISABLED;
+
+        MD_LOG_A( m_adapterId, LOG_DEBUG, "XE EUSS stream opened successfully, fd: %d", eussEventFd );
+
+        return CC_OK;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxXe
+    //
+    // Method:
+    //     ReadEussStream
+    //
+    // Description:
+    //     Sends IOCTL reading euss stream.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //     const uint32_t        reportSize          - size of the report
+    //     const uint32_t        reportsToRead       - number of reports to read from the stream
+    //     char*                 reportData          - (in/out) pointer to the read data
+    //     uint32_t&             readBytes           - (out) number of bytes read
+    //     bool&                 bufferOverflow      - (out) true if the buffer overflowed and some data was lost
+    //
+    // Output:
+    //     TCompletionCode                           - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxXe::ReadEussStream( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t reportSize, const uint32_t reportsToRead, char* reportData, uint32_t& readBytes, bool& bufferOverflow )
+    {
+        const int32_t streamId = eussConcurrentGroup.GetStreamId();
+
+        if( streamId < 0 )
+        {
+            MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: euss stream not opened" );
+            return CC_ERROR_FILE_NOT_FOUND;
+        }
+
+        const size_t bytesToRead = reportsToRead * reportSize;
+
+        MD_LOG_A( m_adapterId, LOG_DEBUG, "Trying to read %u reports from XE EUSS stream, fd: %d", reportsToRead, streamId );
+
+        // #Note May read 1 sample less than requested if ReportLost is returned from kernel
+
+        // 1. READ STREAM DATA
+        int32_t xeReadBytes = read( streamId, reportData, bytesToRead );
+
+        if( xeReadBytes < 0 )
+        {
+            if( errno == EIO )
+            {
+                if( reportData )
+                {
+                    // 2. READ STREAM DATA AGAIN
+                    xeReadBytes = read( streamId, reportData, bytesToRead );
+
+                    // 3. SET OVERFLOW FLAG
+                    if( xeReadBytes >= 64 && bytesToRead >= 64 )
+                    {
+                        constexpr uint16_t           xeCoreIndex = 1;   // XeCore index is unavailable in XE driver data
+                        constexpr uint16_t           flags       = 256; // Overflow flag
+                        constexpr uint32_t           offset      = 48;  // Offset of the "ReportInfo" field in the report
+                        const iu_xe_euss_report_info reportInfo  = { xeCoreIndex, flags };
+
+                        // Move to the "Flags" field
+                        iu_memcpy_s( reportData + offset, bytesToRead - offset, &reportInfo, sizeof( reportInfo ) );
+                    }
+                }
+
+                bufferOverflow = true;
+
+                MD_LOG_A( m_adapterId, LOG_DEBUG, "XE EUSS stream buffer overflow occurred" );
+            }
+
+            if( xeReadBytes < 0 )
+            {
+                readBytes = 0;
+                if( errno == EAGAIN )
+                {
+                    MD_LOG_A( m_adapterId, LOG_DEBUG, "XE EUSS stream data not available yet" );
+                    return CC_OK;
+                }
+                MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Reading XE EUSS stream failed, errno: %d (%s)", errno, strerror( errno ) );
+                return CC_ERROR_GENERAL;
+            }
+        }
+
+        readBytes = xeReadBytes;
+
+        MD_LOG_A( m_adapterId, LOG_DEBUG, "Read %u bytes (= %u reports)", xeReadBytes, xeReadBytes / reportSize );
+
+        return CC_OK;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxXe
+    //
+    // Method:
+    //     CloseEussStream
+    //
+    // Description:
+    //     Sends IOCTL closing euss stream.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //
+    // Output:
+    //     TCompletionCode - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxXe::CloseEussStream( CEUSSConcurrentGroup& eussConcurrentGroup )
+    {
+        const int32_t id = eussConcurrentGroup.GetStreamId();
+
+        if( id >= 0 )
+        {
+            MD_LOG_A( m_adapterId, LOG_DEBUG, "Closing euss stream, fd: %d", id );
+            close( id );
+            eussConcurrentGroup.SetStreamId( -1 );
+        }
+
+        return CC_OK;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxXe
+    //
+    // Method:
+    //     ChangeEussStreamState
+    //
+    // Description:
+    //     Changes EU Stall Sampling Stream state by enabling or disabling it and
+    //     updating sample rate.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //     TIoStreamState        state               - EU Stall Sampling Stream state to set
+    //     uint32_t&             sampleRate          - (in/out) requested sampling rate (currently not supported)
+    //
+    // Output:
+    //     TCompletionCode                           - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxXe::ChangeEussStreamState( CEUSSConcurrentGroup& eussConcurrentGroup, TIoStreamState state, [[maybe_unused]] uint32_t& sampleRate )
+    {
+        const int32_t  streamId     = eussConcurrentGroup.GetStreamId();
+        const uint32_t ioctlRequest = ( state == IO_STREAM_STATE_ENABLED ) ? DRM_XE_OBSERVATION_IOCTL_ENABLE : DRM_XE_OBSERVATION_IOCTL_DISABLE;
+        const int32_t  result       = SendIoctl( streamId, ioctlRequest, nullptr );
+
+        if( result == -1 )
+        {
+            MD_LOG_A( m_adapterId, LOG_WARNING, "Failed to send DRM_XE_OBSERVATION_IOCTL_%s ioctl, errno: %d (%s)", ( ioctlRequest == DRM_XE_OBSERVATION_IOCTL_ENABLE ) ? "ENABLE" : "DISABLE", errno, strerror( errno ) );
+            return CC_ERROR_GENERAL;
+        }
+
+        return CC_OK;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxXe
+    //
+    // Method:
+    //     WaitForEussStreamReports
+    //
+    // Description:
+    //     Waits for EU Stall Sampling Stream reports to be available.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //     const uint32_t        milliseconds        - timeout in milliseconds
+    //     const uint32_t        reportSize          - size of a single report
+    //
+    // Output:
+    //     TCompletionCode                           - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxXe::WaitForEussStreamReports( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t milliseconds, [[maybe_unused]] const uint32_t reportSize )
+    {
+        TCompletionCode retVal     = CC_OK;
+        pollfd          pollParams = {};
+
+        pollParams.fd      = eussConcurrentGroup.GetStreamId();
+        pollParams.revents = 0;
+        pollParams.events  = POLLIN;
+
+        MD_LOG_A( m_adapterId, LOG_DEBUG, "Waiting %d ms", milliseconds );
+
+        int32_t pollResult = poll( &pollParams, 1, milliseconds );
+        if( pollResult > 0 )
+        {
+            // OK, can read
+            MD_LOG_A( m_adapterId, LOG_DEBUG, "Poll successful" );
+            retVal = CC_OK;
+        }
+        else if( pollResult == 0 )
+        {
+            MD_LOG_A( m_adapterId, LOG_DEBUG, "Poll timeout" );
+            retVal = CC_WAIT_TIMEOUT;
+        }
+        else if( /*ret < 0 && */ errno == EINTR )
+        {
+            MD_LOG_A( m_adapterId, LOG_DEBUG, "Poll interrupted" );
+            retVal = CC_INTERRUPTED;
+        }
+        else
+        {
+            MD_LOG_A( m_adapterId, LOG_ERROR, "ERROR: Poll failed" );
+            retVal = CC_ERROR_GENERAL;
+        }
+
+        return retVal;
     }
 
     //////////////////////////////////////////////////////////////////////////////

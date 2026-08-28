@@ -333,7 +333,7 @@ namespace MetricsDiscoveryInternal
         virtual bool            IsTbsEngineValid( const TEngineParamsLatest& engineParams, const uint32_t requestedInstance = -1, const bool isOam = false ) const             = 0;
         TCompletionCode         GetOaTimestamp( const uint64_t csTimestamp, uint64_t& oaTimestamp );
 
-        // Stream
+        // OA stream
         virtual TCompletionCode OpenIoStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t processId, uint32_t& nsTimerPeriod, uint32_t& bufferSize ) final;
         virtual TCompletionCode ReadIoStream( COAConcurrentGroup& oaConcurrentGroup, char* reportData, uint32_t& reportsCount, uint32_t& frequency, GTDIReadCounterStreamExceptions& exceptions ) final;
         virtual TCompletionCode CloseIoStream( COAConcurrentGroup& oaConcurrentGroup ) final;
@@ -342,6 +342,13 @@ namespace MetricsDiscoveryInternal
         virtual TCompletionCode WaitForIoStreamReports( COAConcurrentGroup& oaConcurrentGroup, const uint32_t milliseconds ) final;
         virtual bool            IsIoMeasurementInfoAvailable( const TIoMeasurementInfoType ioMeasurementInfoType ) final;
         virtual bool            IsStreamTypeSupported( const TStreamType streamType ) final;
+
+        // EUSS stream
+        virtual TCompletionCode OpenEussStream( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t sampleRate, const uint32_t eussBufferSize, TIoStreamState& defaultState )                               = 0;
+        virtual TCompletionCode ReadEussStream( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t reportSize, const uint32_t reportsToRead, char* reportData, uint32_t& readBytes, bool& bufferOverflow ) = 0;
+        virtual TCompletionCode CloseEussStream( CEUSSConcurrentGroup& eussConcurrentGroup )                                                                                                                      = 0;
+        virtual TCompletionCode ChangeEussStreamState( CEUSSConcurrentGroup& eussConcurrentGroup, TIoStreamState state, uint32_t& sampleRate )                                                                    = 0;
+        virtual TCompletionCode WaitForEussStreamReports( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t milliseconds, const uint32_t reportSize )                                                     = 0;
 
         // Overrides
         virtual TCompletionCode SetFrequencyOverride( CMetricsDevice& device, const TSetFrequencyOverrideParams_1_2& params ) final;

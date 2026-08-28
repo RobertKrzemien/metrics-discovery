@@ -125,6 +125,26 @@ namespace MetricsDiscoveryInternal
         {
             return CC_ERROR_NOT_SUPPORTED;
         };
+        virtual TCompletionCode OpenEussStream( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup, [[maybe_unused]] const uint32_t sampleRate, [[maybe_unused]] const uint32_t eussBufferSize, [[maybe_unused]] TIoStreamState& defaultState ) final
+        {
+            return CC_ERROR_NOT_SUPPORTED;
+        };
+        virtual TCompletionCode ReadEussStream( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup, [[maybe_unused]] const uint32_t reportSize, [[maybe_unused]] const uint32_t reportsToRead, [[maybe_unused]] char* reportData, [[maybe_unused]] uint32_t& readBytes, [[maybe_unused]] bool& bufferOverflow ) final
+        {
+            return CC_ERROR_NOT_SUPPORTED;
+        };
+        virtual TCompletionCode CloseEussStream( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup ) final
+        {
+            return CC_ERROR_NOT_SUPPORTED;
+        };
+        virtual TCompletionCode ChangeEussStreamState( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup, [[maybe_unused]] TIoStreamState state, [[maybe_unused]] uint32_t& sampleRate ) final
+        {
+            return CC_ERROR_NOT_SUPPORTED;
+        };
+        virtual TCompletionCode WaitForEussStreamReports( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup, [[maybe_unused]] const uint32_t milliseconds, [[maybe_unused]] const uint32_t reportSize ) final
+        {
+            return CC_ERROR_NOT_SUPPORTED;
+        };
         virtual bool IsIoMeasurementInfoAvailable( [[maybe_unused]] const TIoMeasurementInfoType ioMeasurementInfoType ) final
         {
             return false;

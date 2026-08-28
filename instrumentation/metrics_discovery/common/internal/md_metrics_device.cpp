@@ -15,6 +15,7 @@ SPDX-License-Identifier: MIT
 #include "md_concurrent_group.h"
 #include "md_oa_concurrent_group.h"
 #include "md_oam_concurrent_group.h"
+#include "md_euss_concurrent_group.h"
 #include "md_mert_concurrent_group.h"
 #include "md_information.h"
 #include "md_metric.h"
@@ -462,6 +463,16 @@ namespace MetricsDiscoveryInternal
         else if( strstr( symbolicName, "OA" ) != nullptr )
         {
             group = new( std::nothrow ) COAConcurrentGroup( *this, symbolicName, shortName, measurementTypeMask );
+        }
+        else if( strstr( symbolicName, "EUSS" ) != nullptr )
+        {
+            if( !CEUSSConcurrentGroup::IsSupported( *this ) )
+            {
+                isSupported = false;
+                return nullptr;
+            }
+
+            group = new( std::nothrow ) CEUSSConcurrentGroup( *this, symbolicName, shortName, measurementTypeMask );
         }
         else
         {

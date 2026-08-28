@@ -130,6 +130,13 @@ namespace MetricsDiscoveryInternal
         bool                    IsOamSupported();
         bool                    IsOamRequested( const uint32_t reportType );
 
+        // EUSS stream
+        virtual TCompletionCode OpenEussStream( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t sampleRate, const uint32_t eussBufferSize, TIoStreamState& defaultState ) final;
+        virtual TCompletionCode ReadEussStream( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t reportSize, const uint32_t reportsToRead, char* reportData, uint32_t& readBytes, bool& bufferOverflow ) final;
+        virtual TCompletionCode CloseEussStream( CEUSSConcurrentGroup& eussConcurrentGroup ) final;
+        virtual TCompletionCode ChangeEussStreamState( CEUSSConcurrentGroup& eussConcurrentGroup, TIoStreamState state, uint32_t& sampleRate ) final;
+        virtual TCompletionCode WaitForEussStreamReports( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t milliseconds, const uint32_t reportSize ) final;
+
         // Read global symbols per tile.
         TCompletionCode GetQueryGeometrySlices( std::vector<uint8_t>& buffer, CMetricsDevice& metricsDevice );
         TCompletionCode GetQueryTopologyInfo( std::vector<uint8_t>& buffer );

@@ -1566,6 +1566,7 @@ namespace MetricsDiscoveryInternal
         {
             CloseOaStream( oaConcurrentGroup );
             RemoveOaConfig( oaMetricSetId );
+            oaConcurrentGroup.SetStreamConfigId( -1 );
             metricSet->Deactivate();
             return ret;
         }

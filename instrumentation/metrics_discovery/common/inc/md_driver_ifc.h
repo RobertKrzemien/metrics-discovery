@@ -30,6 +30,7 @@ namespace MetricsDiscoveryInternal
     class CSubDevices;
     class CMetricsDevice;
     class COAConcurrentGroup;
+    class CEUSSConcurrentGroup;
     class CMetricSet;
 
     ///////////////////////////////////////////////////////////////////////////////
@@ -123,14 +124,19 @@ namespace MetricsDiscoveryInternal
         virtual TCompletionCode GetGpuCpuTimestamps( CMetricsDevice& device, uint64_t& gpuTimestamp, uint64_t& cpuTimestamp, uint32_t& cpuId, uint64_t& correlationIndicator )                = 0;
 
         // Stream:
-        virtual TCompletionCode OpenIoStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t processId, uint32_t& nsTimerPeriod, uint32_t& bufferSize )                                       = 0;
-        virtual TCompletionCode ReadIoStream( COAConcurrentGroup& oaConcurrentGroup, char* reportData, uint32_t& reportsCount, uint32_t& frequency, GTDIReadCounterStreamExceptions& exceptions )    = 0;
-        virtual TCompletionCode CloseIoStream( COAConcurrentGroup& oaConcurrentGroup )                                                                                                               = 0;
-        virtual TCompletionCode ChangeIoStreamState( COAConcurrentGroup& oaConcurrentGroup, TIoStreamState state, uint32_t& nsTimerPeriod )                                                          = 0;
-        virtual TCompletionCode HandleIoStreamExceptions( COAConcurrentGroup& oaConcurrentGroup, const uint32_t processId, uint32_t& reportCount, const GTDIReadCounterStreamExceptions exceptions ) = 0;
-        virtual TCompletionCode WaitForIoStreamReports( COAConcurrentGroup& oaConcurrentGroup, const uint32_t milliseconds )                                                                         = 0;
-        virtual bool            IsIoMeasurementInfoAvailable( const TIoMeasurementInfoType ioMeasurementInfoType )                                                                                   = 0;
-        virtual bool            IsStreamTypeSupported( const TStreamType streamType )                                                                                                                = 0;
+        virtual TCompletionCode OpenIoStream( COAConcurrentGroup& oaConcurrentGroup, const uint32_t processId, uint32_t& nsTimerPeriod, uint32_t& bufferSize )                                                    = 0;
+        virtual TCompletionCode ReadIoStream( COAConcurrentGroup& oaConcurrentGroup, char* reportData, uint32_t& reportsCount, uint32_t& frequency, GTDIReadCounterStreamExceptions& exceptions )                 = 0;
+        virtual TCompletionCode CloseIoStream( COAConcurrentGroup& oaConcurrentGroup )                                                                                                                            = 0;
+        virtual TCompletionCode ChangeIoStreamState( COAConcurrentGroup& oaConcurrentGroup, TIoStreamState state, uint32_t& nsTimerPeriod )                                                                       = 0;
+        virtual TCompletionCode HandleIoStreamExceptions( COAConcurrentGroup& oaConcurrentGroup, const uint32_t processId, uint32_t& reportCount, const GTDIReadCounterStreamExceptions exceptions )              = 0;
+        virtual TCompletionCode WaitForIoStreamReports( COAConcurrentGroup& oaConcurrentGroup, const uint32_t milliseconds )                                                                                      = 0;
+        virtual TCompletionCode OpenEussStream( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t sampleRate, const uint32_t eussBufferSize, TIoStreamState& defaultState )                               = 0;
+        virtual TCompletionCode ReadEussStream( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t reportSize, const uint32_t reportsToRead, char* reportData, uint32_t& readBytes, bool& bufferOverflow ) = 0;
+        virtual TCompletionCode CloseEussStream( CEUSSConcurrentGroup& eussConcurrentGroup )                                                                                                                      = 0;
+        virtual TCompletionCode ChangeEussStreamState( CEUSSConcurrentGroup& eussConcurrentGroup, TIoStreamState state, uint32_t& sampleRate )                                                                    = 0;
+        virtual TCompletionCode WaitForEussStreamReports( CEUSSConcurrentGroup& eussConcurrentGroup, const uint32_t milliseconds, const uint32_t reportSize )                                                     = 0;
+        virtual bool            IsIoMeasurementInfoAvailable( const TIoMeasurementInfoType ioMeasurementInfoType )                                                                                                = 0;
+        virtual bool            IsStreamTypeSupported( const TStreamType streamType )                                                                                                                             = 0;
 
         // Overrides:
         virtual TCompletionCode SetFrequencyOverride( CMetricsDevice& device, const TSetFrequencyOverrideParams_1_2& params ) = 0;

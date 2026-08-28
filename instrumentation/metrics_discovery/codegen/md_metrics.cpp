@@ -316,6 +316,41 @@ TCompletionCode CreateMetricTreeNVLP_OAMG( CMetricsDevice* metricsDevice, CConcu
 TCompletionCode CreateMetricTreeCRI_OAMG( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup );
 #endif
 
+#if MD_INCLUDE_BMG_METRICS
+    #define MD_CALL_BMG_METRICS 1
+TCompletionCode CreateMetricTreeBMG_EUSS( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup );
+#endif
+
+#if MD_INCLUDE_LNL_METRICS
+    #define MD_CALL_LNL_METRICS 1
+TCompletionCode CreateMetricTreeLNL_EUSS( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup );
+#endif
+
+#if MD_INCLUDE_PTL_METRICS
+    #define MD_CALL_PTL_METRICS 1
+TCompletionCode CreateMetricTreePTL_EUSS( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup );
+#endif
+
+#if MD_INCLUDE_NVL_METRICS
+    #define MD_CALL_NVL_METRICS 1
+TCompletionCode CreateMetricTreeNVL_EUSS( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup );
+#endif
+
+#if MD_INCLUDE_NVLP_METRICS
+    #define MD_CALL_NVLP_METRICS 1
+TCompletionCode CreateMetricTreeNVLP_EUSS( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup );
+#endif
+
+#if MD_INCLUDE_CRI_METRICS
+    #define MD_CALL_CRI_METRICS 1
+TCompletionCode CreateMetricTreeCRI_EUSS( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup );
+#endif
+
+#if MD_INCLUDE_CRI_METRICS
+    #define MD_CALL_CRI_METRICS 1
+TCompletionCode CreateMetricTreeCRI_OAMERT( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup );
+#endif
+
 inline TCompletionCode AddGlobalSymbols( CMetricsDevice* metricsDevice )
 {
     const uint32_t adapterId = OBTAIN_ADAPTER_ID( metricsDevice );
@@ -825,6 +860,58 @@ TCompletionCode CreateMetricTree( CMetricsDevice* metricsDevice )
     else
     {
         MD_LOG_A( adapterId, LOG_INFO, "OAMG concurrent group is not supported!" );
+    }
+
+    MD_CHECK_CC( SetPlatformMask( adapterId, &platformMask, nullptr, false, GENERATION_BMG, GENERATION_LNL, GENERATION_PTL, GENERATION_NVL, GENERATION_NVLP, GENERATION_CRI ) );
+    concurrentGroup = metricsDevice->AddConcurrentGroup( "EUSS", "Eu Stall Sampling", MEASUREMENT_TYPE_SNAPSHOT_IO, &platformMask, isSupported );
+    if( isSupported )
+    {
+        MD_CHECK_PTR( concurrentGroup );
+
+        // Add platform specific metric sets
+#if MD_CALL_BMG_METRICS
+        MD_CHECK_CC( CreateMetricTreeBMG_EUSS( metricsDevice, concurrentGroup ) );
+#endif
+
+#if MD_CALL_LNL_METRICS
+        MD_CHECK_CC( CreateMetricTreeLNL_EUSS( metricsDevice, concurrentGroup ) );
+#endif
+
+#if MD_CALL_PTL_METRICS
+        MD_CHECK_CC( CreateMetricTreePTL_EUSS( metricsDevice, concurrentGroup ) );
+#endif
+
+#if MD_CALL_NVL_METRICS
+        MD_CHECK_CC( CreateMetricTreeNVL_EUSS( metricsDevice, concurrentGroup ) );
+#endif
+
+#if MD_CALL_NVLP_METRICS
+        MD_CHECK_CC( CreateMetricTreeNVLP_EUSS( metricsDevice, concurrentGroup ) );
+#endif
+
+#if MD_CALL_CRI_METRICS
+        MD_CHECK_CC( CreateMetricTreeCRI_EUSS( metricsDevice, concurrentGroup ) );
+#endif
+    }
+    else
+    {
+        MD_LOG_A( adapterId, LOG_INFO, "EUSS concurrent group is not supported!" );
+    }
+
+    MD_CHECK_CC( SetPlatformMask( adapterId, &platformMask, nullptr, false, GENERATION_CRI ) );
+    concurrentGroup = metricsDevice->AddConcurrentGroup( "OAMERT", "OA MERT SS Metrics", MEASUREMENT_TYPE_SNAPSHOT_IO, &platformMask, isSupported );
+    if( isSupported )
+    {
+        MD_CHECK_PTR( concurrentGroup );
+
+        // Add platform specific metric sets
+#if MD_CALL_CRI_METRICS
+        MD_CHECK_CC( CreateMetricTreeCRI_OAMERT( metricsDevice, concurrentGroup ) );
+#endif
+    }
+    else
+    {
+        MD_LOG_A( adapterId, LOG_INFO, "OAMERT concurrent group is not supported!" );
     }
 
     MD_CHECK_CC( metricsDevice->AddOverrides() );

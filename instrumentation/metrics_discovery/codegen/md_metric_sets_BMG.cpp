@@ -8634,4 +8634,149 @@ namespace MetricsDiscoveryInternal::MetricSets_BMG_OAMG
 
 } // namespace MetricsDiscoveryInternal::MetricSets_BMG_OAMG
 
+namespace MetricsDiscoveryInternal::MetricSets_BMG_EUSS
+{
+    CEuStallSamplingMetricSet::CEuStallSamplingMetricSet( CMetricsDevice& device, CConcurrentGroup* concurrentGroup, const char* symbolicName, const char* shortName, uint32_t apiMask, uint32_t category, uint32_t snapshotReportSize, uint32_t deltaReportSize, TReportType reportType, TByteArrayLatest* platformMask, uint32_t gtMask /*= GT_TYPE_ALL*/, bool isCustom /*= false*/ )
+        : CMetricSet( device, concurrentGroup, symbolicName, shortName, apiMask, category, snapshotReportSize, deltaReportSize, reportType, platformMask, gtMask, isCustom )
+    {
+    }
+
+    TCompletionCode CEuStallSamplingMetricSet::Initialize()
+    {
+        CMetric* metric           = nullptr;
+        m_params.InformationCount = m_concurrentGroup->GetInformationCount();
+        MD_CHECK_CC( SetApiSpecificId( "", 0, 0, 0, 0, 0, "", 0, "", 0 ) );
+
+        metric = AddMetric( "IPAddr", "IP Address",
+            "Sampled instruction IP address",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "num", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 0 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "dw@0x0 0x1FFFFFFF AND 8 UMUL" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "TDRCount", "TDR Count",
+            "Pixel Shader order dependency stall (sendc stall)",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 1 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@3:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "OtherCount", "Other Count",
+            "Other reasons stall (including EOT)",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 2 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@4:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "ControlCount", "Control Count",
+            "Control Instruction Stall",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 3 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@5:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "PipestallCount", "Pipestall Count",
+            "Pipeline stall (fpu/em/systolic/meu/jeu)",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 4 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@6:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "SendCount", "Send Count",
+            "Stall related to send command",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 5 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@7:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "DistAccCount", "Dist Acc Count",
+            "Distance or accumulator dependency stall",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 6 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@8:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "SbidCount", "Sbid Count",
+            "Scoreboard ID Stall",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 7 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@9:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "SyncCount", "Sync Count",
+            "Synchronization stall (barrier)",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 8 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@10:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "InstFetchCount", "Inst Fetch Count",
+            "Instruction fetch stall",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 9 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@11:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "ActiveCount", "Active Count",
+            "Active count",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 10 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@12:5:8" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "ExId", "Ex Id",
+            "Execution Id",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 11 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@13:5:3" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "EndFlag", "End Flag",
+            "End Flag (valid)",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 12 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "bm@14:0:1" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "SubsliceIndex", "Subslice Index",
+            "Subslice Index",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 13 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "rd16@48" ) );
+        MD_CHECK_CC( metric->SetNormalizationEquation( "$Self 0 == prev$$SubsliceIndex UMUL $Self 0 UGT $Self 1 USUB UMUL UADD" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        metric = AddMetric( "Flags", "Flags",
+            "Flags (buffer overflow)",
+            "GPU", ( METRIC_GROUP_NAME_ID_GPU * 0x1000000 ), USAGE_FLAG_OVERVIEW, API_TYPE_IOSTREAM,
+            METRIC_TYPE_EVENT, RESULT_UINT64, "events", 0, 0, HW_UNIT_GPU, nullptr, nullptr, nullptr, 14 );
+        MD_CHECK_PTR( metric );
+        MD_CHECK_CC( metric->SetSnapshotReportReadEquation( "rd16@50" ) );
+        MD_CHECK_CC( metric->SetNormalizationEquation( "$SubsliceIndex 0 == prev$$Flags UMUL $SubsliceIndex 0 UGT $Self UMUL UADD" ) );
+        MD_CHECK_CC( metric->SetSnapshotReportDeltaFunction( "LAST" ) );
+
+        MD_CHECK_CC( RefreshConfigRegisters() );
+
+        return CC_OK;
+
+    exception:
+        return CC_ERROR_GENERAL;
+    }
+
+} // namespace MetricsDiscoveryInternal::MetricSets_BMG_EUSS
+
 #endif

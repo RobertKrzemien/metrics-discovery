@@ -201,3 +201,35 @@ exception:
     return CC_ERROR_NO_MEMORY;
 }
 #endif
+
+#if ( ( !defined( MD_INCLUDE_LNL_METRICS ) && MD_INCLUDE_ALL_METRICS ) || MD_INCLUDE_LNL_METRICS )
+
+TCompletionCode CreateMetricTreeLNL_EUSS( CMetricsDevice* metricsDevice, CConcurrentGroup* concurrentGroup )
+{
+    const uint32_t adapterId = OBTAIN_ADAPTER_ID( metricsDevice );
+
+    MD_LOG_ENTER_A( adapterId );
+    MD_CHECK_PTR_RET_A( adapterId, metricsDevice, CC_ERROR_INVALID_PARAMETER );
+    MD_CHECK_PTR_RET_A( adapterId, concurrentGroup, CC_ERROR_INVALID_PARAMETER );
+
+    CMetricSet*      metricSet                                               = nullptr;
+    uint8_t          platformMaskByteArray[MD_PLATFORM_MASK_BYTE_ARRAY_SIZE] = {};
+    TByteArrayLatest platformMask                                            = { MD_PLATFORM_MASK_BYTE_ARRAY_SIZE, platformMaskByteArray };
+
+    MD_CHECK_CC( SetPlatformMask( adapterId, &platformMask, nullptr, false, GENERATION_LNL ) );
+
+    if( metricsDevice->IsPlatformTypeOf( &platformMask ) )
+    {
+        metricSet = concurrentGroup->AddMetricSetExplicit<MetricSets_LNL_EUSS::CEuStallSamplingMetricSet>( "EuStallSampling", "Eu Stall Sampling", API_TYPE_IOSTREAM,
+            GPU_RENDER | GPU_COMPUTE, 64, 0, OA_REPORT_TYPE_256B_A45_NOA16, &platformMask, nullptr );
+        MD_CHECK_PTR( metricSet );
+    }
+
+    MD_LOG_EXIT_A( adapterId );
+    return CC_OK;
+
+exception:
+    MD_LOG_EXIT_A( adapterId );
+    return CC_ERROR_NO_MEMORY;
+}
+#endif

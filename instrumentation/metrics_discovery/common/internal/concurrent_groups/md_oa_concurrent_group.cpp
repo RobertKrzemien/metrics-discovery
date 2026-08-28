@@ -971,7 +971,7 @@ namespace MetricsDiscoveryInternal
         auto metricSetInternal = static_cast<CMetricSet*>( metricSet );
         if( metricSetInternal->GetConcurrentGroup() != this )
         {
-            MD_LOG_A( adapterId, LOG_ERROR, "Error: Given metric set belongs to another concurrent group." );
+            MD_LOG_A( adapterId, LOG_ERROR, "Error: Given metric set belongs to another concurrent group" );
             return CC_ERROR_INVALID_PARAMETER;
         }
 

@@ -2097,6 +2097,134 @@ namespace MetricsDiscoveryInternal
     //     CDriverInterfaceLinuxPerf
     //
     // Method:
+    //      OpenEussStream
+    //
+    // Description:
+    //     Sends IOCTL opening euss stream.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //     const uint32_t sampleRate                 - sample rate
+    //     const uint32_t eussBufferSize             - EUSS buffer size
+    //     TIoStreamState& defaultState              - (out) default state of the stream
+    //
+    // Output:
+    //     TCompletionCode                           - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxPerf::OpenEussStream( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup, [[maybe_unused]] const uint32_t sampleRate, [[maybe_unused]] const uint32_t eussBufferSize, [[maybe_unused]] TIoStreamState& defaultState )
+    {
+        return CC_ERROR_NOT_SUPPORTED;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxPerf
+    //
+    // Method:
+    //     ReadEussStream
+    //
+    // Description:
+    //     Sends IOCTL reading euss stream.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //     const uint32_t        reportSize          - size of the report
+    //     const uint32_t        reportsToRead       - number of reports to read from the stream
+    //     char*                 reportData          - (in/out) pointer to the read data
+    //     uint32_t&             readBytes           - (out) number of bytes read
+    //     bool&                 bufferOverflow      - (out) true if the buffer overflowed and some data was lost
+    //
+    // Output:
+    //     TCompletionCode                           - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxPerf::ReadEussStream( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup, [[maybe_unused]] const uint32_t reportSize, [[maybe_unused]] const uint32_t reportsToRead, [[maybe_unused]] char* reportData, [[maybe_unused]] uint32_t& readBytes, [[maybe_unused]] bool& bufferOverflow )
+    {
+        return CC_ERROR_NOT_SUPPORTED;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxPerf
+    //
+    // Method:
+    //     CloseEussStream
+    //
+    // Description:
+    //     Sends IOCTL closing euss stream.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //
+    // Output:
+    //     TCompletionCode - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxPerf::CloseEussStream( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup )
+    {
+        return CC_ERROR_NOT_SUPPORTED;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxPerf
+    //
+    // Method:
+    //     ChangeEussStreamState
+    //
+    // Description:
+    //     Changes EU Stall Sampling Stream state by enabling or disabling it and
+    //     updating sample rate.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //     TIoStreamState        state               - EU Stall Sampling Stream state to set
+    //     uint32_t&             sampleRate          - (in/out) requested sampling rate (currently not supported)
+    //
+    // Output:
+    //     TCompletionCode                           - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxPerf::ChangeEussStreamState( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup, [[maybe_unused]] TIoStreamState state, [[maybe_unused]] uint32_t& sampleRate )
+    {
+        return CC_ERROR_NOT_SUPPORTED;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxPerf
+    //
+    // Method:
+    //     WaitForEussStreamReports
+    //
+    // Description:
+    //     Waits for EU Stall Sampling Stream reports to be available.
+    //
+    // Input:
+    //     CEUSSConcurrentGroup& eussConcurrentGroup - EUSS concurrent group
+    //     const uint32_t        milliseconds        - timeout in milliseconds
+    //     const uint32_t        reportSize          - size of a single report
+    //
+    // Output:
+    //     TCompletionCode                           - result of operation (*CC_OK* is OK)
+    //
+    //////////////////////////////////////////////////////////////////////////////
+    TCompletionCode CDriverInterfaceLinuxPerf::WaitForEussStreamReports( [[maybe_unused]] CEUSSConcurrentGroup& eussConcurrentGroup, [[maybe_unused]] const uint32_t milliseconds, [[maybe_unused]] const uint32_t reportSize )
+    {
+        return CC_ERROR_NOT_SUPPORTED;
+    }
+
+    //////////////////////////////////////////////////////////////////////////////
+    //
+    // Class:
+    //     CDriverInterfaceLinuxPerf
+    //
+    // Method:
     //     GetCpuTimestampNs
     //
     // Description:
